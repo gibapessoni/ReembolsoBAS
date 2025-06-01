@@ -1,0 +1,46 @@
+﻿# Sistema de Gestão de Reembolsos BAS
+
+Um sistema para gerenciar solicitações de reembolso de despesas médicas, com perfis de administrador, RH, gerente RH e empregado.
+
+---
+
+## 📋 Pré-requisitos
+- [.NET 7.0 SDK](https://dotnet.microsoft.com/download)
+- [Node.js](https://nodejs.org/) (opcional para frontend)
+## Configuração do Banco de Dados
+
+1. Execute o SQL Server
+2. Crie o banco 'ReembolsoBAS'
+3. Ajuste a connection string em `appsettings.json`:
+```json
+"ConnectionStrings": {
+  "DefaultConnection": "Server=seu_servidor;Database=ReembolsoBAS;User Id=seu_user;Password=sua_senha;"
+}
+ executar no terminal: 
+ dotnet ef migrations add InitialCreate --context AppDbContext
+ dotnet ef database update
+
+- Editor de código (ex: [VS Code](https://code.visualstudio.com/))
+- Conhecimentos básicos de:
+  - C#, Entity Framework Core
+  - APIs REST
+  - Autenticação JWT
+
+---
+
+## 🚀 Instalação e Configuração
+
+### 1. Clonar o Repositório
+```bash
+git clone https://github.com/gibapessoni/ReembolsoBAS.git
+cd ReembolsoBAS
+
+JWT: Resumo para o responsável ✅
+Quem gera? O endpoint de login, dentro da API, após validar usuário e senha.
+
+Como é gerado? Com a chave secreta configurada no ambiente e HMAC-SHA256.
+
+O que contém? Apenas e-mail, role e matrícula do usuário, mais a data de expiração.
+
+Como é verificado? Automaticamente pelo middleware JWT em todas as requisições, dispensando sessão no servidor.
+
