@@ -1,4 +1,4 @@
-﻿Sistema de Gestão de Reembolsos BAS
+Sistema de Gestão de Reembolsos BAS
 Um sistema para gerenciar solicitações de reembolso de despesas médicas, com perfis de administrador, RH, gerente RH e empregado.
 Pré-requisitos
 .NET 8.0 SDK
@@ -154,3 +154,27 @@ Parar e remover o container (quando não precisar mais)
 
 Se quiser apagar também a imagem local:
 		docker rmi reembolsobas-api:latest
+
+
+		 Conclusão
+Após seguir estes passos, o usuário que clonar o repositório terá:
+
+O projeto configurado para .NET 8.0.
+
+O banco de dados criado e atualizado automaticamente pelas migrations (EF Core).
+
+Uma API rodando em https://localhost:5001 (ou em outra porta que o .NET escolheu).
+
+A pasta Uploads/ pronta para armazenar documentos enviados.
+
+A possibilidade de rodar tudo nativamente ou via Docker, sem autenticação JWT.
+
+Dessa forma, quem baixar o projeto poderá começar a usar imediatamente, chamando qualquer rota (GET, POST, PUT, DELETE) no Swagger ou pelo seu cliente HTTP favorito.
+
+Se restar alguma dúvida ou ocorrer algum erro, verifique:
+
+A connection string (se está apontando para o SQL Server correto).
+
+Permissões de gravação na pasta Uploads/.
+
+Se as migrations foram aplicadas de fato (dotnet ef database update).
