@@ -1,15 +1,16 @@
-﻿using Microsoft.AspNetCore.Mvc;
+﻿using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Security.Claims;
+using System.Threading.Tasks;
+using ClosedXML.Excel;
+using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ReembolsoBAS.Data;
 using ReembolsoBAS.Models;
 using ReembolsoBAS.Services;
-using ClosedXML.Excel;
-using System.Security.Claims;
-using System.IO;
-using System;
-using System.Linq;
-using System.Threading.Tasks;
-using System.Collections.Generic;
 
 namespace ReembolsoBAS.Controllers
 {
@@ -33,10 +34,9 @@ namespace ReembolsoBAS.Controllers
 
         // 1. EMPREGADO: “Meus Reembolsos”
         [HttpGet("meus")]
+        [Authorize(Roles = "empregado,admin")]
         public async Task<IActionResult> GetMeus()
         {
-            // Se você não tiver mais o ClaimTypes.NameIdentifier,
-            // talvez queira obter a “matrícula” de outra forma.
             var matricula = User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrEmpty(matricula))
                 return BadRequest("Não foi possível identificar o usuário.");
@@ -50,6 +50,7 @@ namespace ReembolsoBAS.Controllers
 
         // 2. EMPREGADO: Nova Solicitação de Reembolso
         [HttpPost("solicitar")]
+        [Authorize(Roles = "empregado,admin")]
         public async Task<IActionResult> SolicitarReembolso([FromForm] ReembolsoRequest req)
         {
             var fimMes = new DateTime(req.Periodo.Year, req.Periodo.Month, 1)
@@ -79,6 +80,7 @@ namespace ReembolsoBAS.Controllers
 
         // 3. RH: Listar Reembolsos Pendentes
         [HttpGet("pendentes-rh")]
+        [Authorize(Roles = "rh,gerente_rh,admin")]
         public async Task<IActionResult> PendentesRH()
         {
             var lista = await _ctx.Reembolsos
@@ -91,6 +93,7 @@ namespace ReembolsoBAS.Controllers
 
         // 4. RH: Validar um Reembolso (marca como “ValidadoRH”)
         [HttpPost("validar/{id:int}")]
+        [Authorize(Roles = "rh,gerente_rh,admin")]
         public async Task<IActionResult> Validar(int id)
         {
             await _service.ValidarReembolso(id);
@@ -99,6 +102,7 @@ namespace ReembolsoBAS.Controllers
 
         // 5. Gerente RH: Aprovar Reembolso individualmente
         [HttpPost("aprovar/{id:int}")]
+        [Authorize(Roles = "gerente_rh,admin")]
         public async Task<IActionResult> Aprovar(int id)
         {
             await _service.AprovarReembolso(id);
@@ -107,6 +111,7 @@ namespace ReembolsoBAS.Controllers
 
         // 6. RH ou Gerente RH: Reprovar Reembolso
         [HttpPost("reprovar/{id:int}")]
+        [Authorize(Roles = "rh,gerente_rh,admin")]
         public async Task<IActionResult> Reprovar(int id, [FromBody] string motivo)
         {
             await _service.ReprovarReembolso(id, motivo);
@@ -115,6 +120,7 @@ namespace ReembolsoBAS.Controllers
 
         // 7. Gerente RH: Devolver para Correção
         [HttpPost("devolver/{id:int}")]
+        [Authorize(Roles = "gerente_rh,admin")]
         public async Task<IActionResult> Devolver(int id, [FromBody] string motivo)
         {
             await _service.DevolverParaCorrecao(id, motivo);
@@ -128,11 +134,12 @@ namespace ReembolsoBAS.Controllers
         }
 
         [HttpPost("aprovar-em-lote")]
+        [Authorize(Roles = "gerente_rh,admin")]
         public async Task<IActionResult> AprovarEmLote([FromBody] BatchApproveRequest req)
         {
-            foreach (var id in req.ReembolsoIds)
+            foreach (var rId in req.ReembolsoIds)
             {
-                await _service.AprovarReembolso(id);
+                await _service.AprovarReembolso(rId);
             }
             return NoContent();
         }
@@ -145,6 +152,7 @@ namespace ReembolsoBAS.Controllers
         }
 
         [HttpPost("relatorio")]
+        [Authorize(Roles = "rh,gerente_rh,admin")]
         public async Task<IActionResult> GetRelatorio([FromBody] RelatorioFilter filtro)
         {
             var query = _ctx.Reembolsos
@@ -175,6 +183,7 @@ namespace ReembolsoBAS.Controllers
 
         // 10. Relatório em Excel
         [HttpPost("relatorio/excel")]
+        [Authorize(Roles = "rh,gerente_rh,admin")]
         public async Task<IActionResult> ExportarExcel([FromBody] RelatorioFilter filtro)
         {
             var query = _ctx.Reembolsos
