@@ -11,9 +11,9 @@ public class Reembolso
     public DateTime Periodo { get; set; }
     public string Status { get; set; } = StatusReembolso.Pendente;
     public DateTime DataEnvio { get; set; } = DateTime.UtcNow;
-    public string? MotivoReprovacao { get; set; } // Pode ser nulo
+    public string? MotivoReprovacao { get; set; } 
     public string CaminhoDocumentos { get; set; } = string.Empty;
-    public Empregado? Empregado { get; set; } // Propriedade de navegação
+    public Empregado Empregado { get; set; } = null!;
 
     [Column(TypeName = "decimal(18,2)")]
     public decimal ValorSolicitado { get; set; }

@@ -1,4 +1,4 @@
-﻿
+﻿using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -7,6 +7,7 @@ using ReembolsoBAS.Data;
 using ReembolsoBAS.Models;
 using ReembolsoBAS.Services;
 using System;
+using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 
@@ -14,7 +15,6 @@ namespace ReembolsoBAS.Controllers
 {
     [ApiController]
     [Route("api/[controller]")]
-    [Authorize(Roles = "admin,rh")]
     public class PoliticasController : ControllerBase
     {
         private readonly AppDbContext _context;
@@ -29,13 +29,19 @@ namespace ReembolsoBAS.Controllers
         [HttpPost("upload")]
         public async Task<IActionResult> UploadPolitica(IFormFile arquivo)
         {
+            if (arquivo == null || arquivo.Length == 0)
+                return BadRequest("Arquivo obrigatório");
+
+            var todas = await _context.PoliticasBAS.ToListAsync();
+            foreach (var p in todas) p.Vigente = false;
+
             var caminho = await _fileStorage.SaveFiles(new FormFileCollection { arquivo });
 
             var novaPolitica = new PoliticaBAS
             {
                 Codigo = "PG.DAF.014/2020",
-                Revisao = "03",
-                DataPublicacao = DateTime.Now,
+                Revisao = (todas.Count + 1).ToString("00"),
+                DataPublicacao = DateTime.UtcNow,
                 CaminhoArquivo = caminho,
                 Vigente = true
             };
@@ -46,15 +52,67 @@ namespace ReembolsoBAS.Controllers
             return Ok(novaPolitica);
         }
 
+        [HttpGet("todas")]
+        public async Task<IActionResult> GetTodasPoliticas()
+        {
+            var lista = await _context.PoliticasBAS
+                                      .AsNoTracking()
+                                      .OrderByDescending(p => p.DataPublicacao)
+                                      .ToListAsync();
+            return Ok(lista);
+        }
+
         [HttpGet("ativas")]
         public async Task<IActionResult> GetPoliticasAtivas()
         {
-            var politicas = await _context.PoliticasBAS
-                .Where(p => p.Vigente)
-                .ToListAsync();
+            var lista = await _context.PoliticasBAS
+                                      .Where(p => p.Vigente)
+                                      .ToListAsync();
+            return Ok(lista);
+        }
 
-            return Ok(politicas);
+        [HttpGet("download/{id:int}")]
+        public async Task<IActionResult> DownloadPolitica(int id)
+        {
+            var p = await _context.PoliticasBAS.FindAsync(id);
+            if (p == null) return NotFound();
+
+            if (!System.IO.File.Exists(p.CaminhoArquivo))
+                return NotFound("Arquivo não encontrado no servidor.");
+
+            var fileName = Path.GetFileName(p.CaminhoArquivo);
+            var mimeType = "application/pdf";
+            var bytes = await System.IO.File.ReadAllBytesAsync(p.CaminhoArquivo);
+            return File(bytes, mimeType, fileName);
+        }
+
+        [HttpPost("ativar/{id:int}")]
+        public async Task<IActionResult> AtivarPolitica(int id)
+        {
+            var todas = await _context.PoliticasBAS.ToListAsync();
+            foreach (var p in todas) p.Vigente = false;
+
+            var pAtiva = todas.FirstOrDefault(x => x.Id == id);
+            if (pAtiva == null) return NotFound();
+
+            pAtiva.Vigente = true;
+            await _context.SaveChangesAsync();
+            return Ok(pAtiva);
+        }
+
+        [HttpGet("pagina")]
+        public async Task<IActionResult> GetConteudoPoliticaVigente()
+        {
+            var p = await _context.PoliticasBAS.FirstOrDefaultAsync(x => x.Vigente);
+            if (p == null) return NotFound("Nenhuma política vigente encontrada.");
+
+            var htmlPath = Path.ChangeExtension(p.CaminhoArquivo, ".html");
+            if (!System.IO.File.Exists(htmlPath))
+                return NotFound("Conteúdo formatado da política não encontrado.");
+
+            var textoHtml = await System.IO.File.ReadAllTextAsync(htmlPath);
+            return Content(textoHtml, "text/html");
         }
     }
-}
 
+}
