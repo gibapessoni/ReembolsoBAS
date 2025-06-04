@@ -11,7 +11,6 @@ namespace ReembolsoBAS.Models
         public string Diretoria { get; set; } = string.Empty;
         public string Superintendencia { get; set; } = string.Empty;
         public string Cargo { get; set; } = string.Empty;
-        //public decimal ValorMaximoMensal { get; set; }
         public bool Ativo { get; set; } = true;
 
         [Column(TypeName = "decimal(18,2)")] 
