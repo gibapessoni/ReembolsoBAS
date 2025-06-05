@@ -1,4 +1,4 @@
-﻿Sistema de Gestão de Reembolsos BAS
+Sistema de Gestão de Reembolsos BAS
 Um sistema para gerenciar solicitações de reembolso de despesas médicas, com perfis de administrador, RH, gerente RH e empregado.
 Pré-requisitos
 .NET 8.0 SDK
@@ -177,4 +177,5 @@ A connection string (se está apontando para o SQL Server correto).
 
 Permissões de gravação na pasta Uploads/.
 
-Se as migrations foram aplicadas de fato (dotnet ef database update).
+
+
