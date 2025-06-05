@@ -57,7 +57,8 @@ namespace ReembolsoBAS.Migrations
                     Nome = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     Email = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     SenhaHash = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Perfil = table.Column<string>(type: "nvarchar(max)", nullable: false)
+                    Perfil = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Matricula = table.Column<string>(type: "nvarchar(max)", nullable: false)
                 },
                 constraints: table =>
                 {
@@ -75,9 +76,8 @@ namespace ReembolsoBAS.Migrations
                     Periodo = table.Column<DateTime>(type: "datetime2", nullable: false),
                     Status = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     DataEnvio = table.Column<DateTime>(type: "datetime2", nullable: false),
-                    MotivoReprovacao = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    MotivoReprovacao = table.Column<string>(type: "nvarchar(max)", nullable: true),
                     CaminhoDocumentos = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    EmpregadoMatricula = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     ValorSolicitado = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
                     ValorReembolsado = table.Column<decimal>(type: "decimal(18,2)", nullable: false)
                 },
@@ -92,6 +92,35 @@ namespace ReembolsoBAS.Migrations
                         onDelete: ReferentialAction.Cascade);
                 });
 
+            migrationBuilder.CreateTable(
+                name: "ReembolsoLancamentos",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    ReembolsoId = table.Column<int>(type: "int", nullable: false),
+                    Beneficiario = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    GrauParentesco = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    DataPagamento = table.Column<DateTime>(type: "datetime2", nullable: false),
+                    ValorPago = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
+                    ValorRestituir = table.Column<decimal>(type: "decimal(18,2)", nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_ReembolsoLancamentos", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_ReembolsoLancamentos_Reembolsos_ReembolsoId",
+                        column: x => x.ReembolsoId,
+                        principalTable: "Reembolsos",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateIndex(
+                name: "IX_ReembolsoLancamentos_ReembolsoId",
+                table: "ReembolsoLancamentos",
+                column: "ReembolsoId");
+
             migrationBuilder.CreateIndex(
                 name: "IX_Reembolsos_MatriculaEmpregado",
                 table: "Reembolsos",
@@ -105,10 +134,13 @@ namespace ReembolsoBAS.Migrations
                 name: "PoliticasBAS");
 
             migrationBuilder.DropTable(
-                name: "Reembolsos");
+                name: "ReembolsoLancamentos");
 
             migrationBuilder.DropTable(
                 name: "Usuarios");
+
+            migrationBuilder.DropTable(
+                name: "Reembolsos");
 
             migrationBuilder.DropTable(
                 name: "Empregados");

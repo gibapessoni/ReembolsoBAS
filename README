@@ -177,4 +177,5 @@ A connection string (se está apontando para o SQL Server correto).
 
 Permissões de gravação na pasta Uploads/.
 
-Se as migrations foram aplicadas de fato (dotnet ef database update).
+
+

@@ -12,7 +12,7 @@ using ReembolsoBAS.Data;
 namespace ReembolsoBAS.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20250527205154_InitialCreate")]
+    [Migration("20250605194917_InitialCreate")]
     partial class InitialCreate
     {
         /// <inheritdoc />
@@ -40,16 +40,11 @@ namespace ReembolsoBAS.Migrations
                     b.Property<DateTime>("DataEnvio")
                         .HasColumnType("datetime2");
 
-                    b.Property<string>("EmpregadoMatricula")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
                     b.Property<string>("MatriculaEmpregado")
                         .IsRequired()
                         .HasColumnType("nvarchar(450)");
 
                     b.Property<string>("MotivoReprovacao")
-                        .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<string>("NumeroRegistro")
@@ -146,6 +141,41 @@ namespace ReembolsoBAS.Migrations
                     b.ToTable("PoliticasBAS");
                 });
 
+            modelBuilder.Entity("ReembolsoBAS.Models.ReembolsoLancamento", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("Beneficiario")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("DataPagamento")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("GrauParentesco")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<int>("ReembolsoId")
+                        .HasColumnType("int");
+
+                    b.Property<decimal>("ValorPago")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("ValorRestituir")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("ReembolsoId");
+
+                    b.ToTable("ReembolsoLancamentos");
+                });
+
             modelBuilder.Entity("ReembolsoBAS.Models.Usuario", b =>
                 {
                     b.Property<int>("Id")
@@ -155,6 +185,10 @@ namespace ReembolsoBAS.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Email")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("Matricula")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
@@ -185,6 +219,22 @@ namespace ReembolsoBAS.Migrations
                         .IsRequired();
 
                     b.Navigation("Empregado");
+                });
+
+            modelBuilder.Entity("ReembolsoBAS.Models.ReembolsoLancamento", b =>
+                {
+                    b.HasOne("Reembolso", "Reembolso")
+                        .WithMany("Lancamentos")
+                        .HasForeignKey("ReembolsoId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Reembolso");
+                });
+
+            modelBuilder.Entity("Reembolso", b =>
+                {
+                    b.Navigation("Lancamentos");
                 });
 #pragma warning restore 612, 618
         }
