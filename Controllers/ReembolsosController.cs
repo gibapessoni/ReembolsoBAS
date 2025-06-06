@@ -53,6 +53,10 @@ namespace ReembolsoBAS.Controllers
         [Authorize(Roles = "empregado,admin")]
         public async Task<IActionResult> SolicitarReembolso([FromForm] ReembolsoRequest req)
         {
+            var matriculaLogado = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (matriculaLogado != req.Matricula && !User.IsInRole("admin"))
+                return Forbid();
+
             var fimMes = new DateTime(req.Periodo.Year, req.Periodo.Month, 1)
                          .AddMonths(1).AddDays(-1);
             if (DateTime.Today > fimMes.AddDays(5))
@@ -76,6 +80,78 @@ namespace ReembolsoBAS.Controllers
             _ctx.Reembolsos.Add(reembolso);
             await _ctx.SaveChangesAsync();
             return Ok(reembolso);
+        }
+
+        // 2.1 EMPREGADO: Editar uma Solicitação de Reembolso
+        [HttpPut("{id:int}")]
+        [Authorize(Roles = "empregado,admin")]
+        public async Task<IActionResult> EditarReembolso(int id, [FromForm] ReembolsoRequest req)
+        {
+            var reembolso = await _ctx.Reembolsos
+                                      .Include(r => r.Empregado)
+                                      .FirstOrDefaultAsync(r => r.Id == id);
+            if (reembolso == null)
+                return NotFound();
+
+            var matriculaLogado = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            // Só o criador (ou admin) pode editar
+            if (reembolso.MatriculaEmpregado != matriculaLogado && !User.IsInRole("admin"))
+                return Forbid();
+
+            // Só edita se ainda estiver pendente ou devolvido para correção
+            if (reembolso.Status != StatusReembolso.Pendente &&
+                reembolso.Status != StatusReembolso.DevolvidoRH &&
+                !User.IsInRole("admin"))
+            {
+                return BadRequest("Não é possível editar um reembolso já validado ou aprovado.");
+            }
+
+            // Atualiza campos permitidos: ValorSolicitado, Documentos e Periodo se necessário
+            var fimMes = new DateTime(req.Periodo.Year, req.Periodo.Month, 1)
+                         .AddMonths(1).AddDays(-1);
+            if (DateTime.Today > fimMes.AddDays(5) && !User.IsInRole("admin"))
+                return BadRequest("Período fora do prazo para alteração.");
+
+            reembolso.Periodo = req.Periodo;
+            reembolso.ValorSolicitado = req.ValorSolicitado;
+
+            if (req.Documentos != null && req.Documentos.Count > 0)
+            {
+                // Sobrescreve documentos antigos ou concatena? Aqui vamos sobrescrever
+                reembolso.CaminhoDocumentos = await _fileStorage.SaveFiles(req.Documentos);
+            }
+
+            _ctx.Entry(reembolso).State = EntityState.Modified;
+            await _ctx.SaveChangesAsync();
+            return Ok(reembolso);
+        }
+
+        // 2.2 EMPREGADO: Excluir uma Solicitação de Reembolso
+        [HttpDelete("{id:int}")]
+        [Authorize(Roles = "empregado,admin")]
+        public async Task<IActionResult> ExcluirReembolso(int id)
+        {
+            var reembolso = await _ctx.Reembolsos
+                                      .FirstOrDefaultAsync(r => r.Id == id);
+            if (reembolso == null)
+                return NotFound();
+
+            var matriculaLogado = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            // Só o criador (ou admin) pode excluir
+            if (reembolso.MatriculaEmpregado != matriculaLogado && !User.IsInRole("admin"))
+                return Forbid();
+
+            // Só exclui se ainda estiver pendente ou devolvido para correção
+            if (reembolso.Status != StatusReembolso.Pendente &&
+                reembolso.Status != StatusReembolso.DevolvidoRH &&
+                !User.IsInRole("admin"))
+            {
+                return BadRequest("Não é possível apagar um reembolso já validado ou aprovado.");
+            }
+
+            _ctx.Reembolsos.Remove(reembolso);
+            await _ctx.SaveChangesAsync();
+            return NoContent();
         }
 
         // 3. RH: Listar Reembolsos Pendentes
