@@ -1,14 +1,14 @@
-﻿using System;
-using System.Text;
+﻿using BCrypt.Net;
 using Microsoft.AspNetCore.Authentication.JwtBearer;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using ReembolsoBAS.Data;
 using ReembolsoBAS.Services;
-
 using System;
-using BCrypt.Net;
+using System;
+using System.Text;
+using System.Text.Json.Serialization;
 
 
 var builder = WebApplication.CreateBuilder(args);
@@ -20,7 +20,11 @@ Console.WriteLine($"[DEBUG] Hash gerado em runtime para 'Senha123!': {hashGerado
 
 // 1. Controllers
 builder.Services.AddControllers()
-    .AddJsonOptions(o => o.JsonSerializerOptions.PropertyNamingPolicy = null);
+    .AddJsonOptions(o =>
+    {
+        o.JsonSerializerOptions.PropertyNamingPolicy = null;
+        o.JsonSerializerOptions.ReferenceHandler = ReferenceHandler.IgnoreCycles;
+    });
 
 // 2. DbContext (SQL Server)
 builder.Services.AddDbContext<AppDbContext>(opts =>

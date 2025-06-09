@@ -1,16 +1,18 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Security.Claims;
-using System.Threading.Tasks;
-using ClosedXML.Excel;
+﻿using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ReembolsoBAS.Data;
 using ReembolsoBAS.Models;
+using ReembolsoBAS.Models.Dto;
 using ReembolsoBAS.Services;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Security.Claims;
+using System.Text.Json;
+using System.Threading.Tasks;
 
 namespace ReembolsoBAS.Controllers
 {
@@ -53,9 +55,8 @@ namespace ReembolsoBAS.Controllers
         [Authorize(Roles = "empregado,admin")]
         public async Task<IActionResult> SolicitarReembolso([FromForm] ReembolsoRequest req)
         {
-            var matriculaLogado = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (matriculaLogado != req.Matricula && !User.IsInRole("admin"))
-                return Forbid();
+            if (req.Beneficiario.Length == 0)
+                return BadRequest("É preciso ter pelo menos um lançamento.");
 
             var fimMes = new DateTime(req.Periodo.Year, req.Periodo.Month, 1)
                          .AddMonths(1).AddDays(-1);
@@ -67,6 +68,20 @@ namespace ReembolsoBAS.Controllers
             if (emp == null)
                 return BadRequest("Matrícula não encontrada.");
 
+            // Monta lista de ReembolsoLancamento
+            var lancamentos = new List<ReembolsoLancamento>();
+            for (int i = 0; i < req.Beneficiario.Length; i++)
+            {
+                lancamentos.Add(new ReembolsoLancamento
+                {
+                    Beneficiario = req.Beneficiario[i],
+                    GrauParentesco = req.GrauParentesco.Length > i ? req.GrauParentesco[i] : "",
+                    DataPagamento = req.DataPagamento.Length > i ? req.DataPagamento[i] : DateTime.MinValue,
+                    ValorPago = req.ValorPago.Length > i ? req.ValorPago[i] : 0m,
+                    ValorRestituir = (req.ValorPago.Length > i ? req.ValorPago[i] : 0m) * 0.5m
+                });
+            }
+
             var reembolso = new Reembolso
             {
                 MatriculaEmpregado = req.Matricula,
@@ -74,13 +89,15 @@ namespace ReembolsoBAS.Controllers
                 ValorSolicitado = req.ValorSolicitado,
                 Status = StatusReembolso.Pendente,
                 CaminhoDocumentos = await _fileStorage.SaveFiles(req.Documentos),
-                Empregado = emp
+                Empregado = emp,
+                Lancamentos = lancamentos
             };
 
             _ctx.Reembolsos.Add(reembolso);
             await _ctx.SaveChangesAsync();
             return Ok(reembolso);
         }
+
 
         // 2.1 EMPREGADO: Editar uma Solicitação de Reembolso
         [HttpPut("{id:int}")]
