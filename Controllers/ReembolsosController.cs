@@ -8,6 +8,7 @@ using ReembolsoBAS.Models.Dto;
 using ReembolsoBAS.Services;
 using System;
 using System.Collections.Generic;
+using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Security.Claims;
@@ -55,37 +56,62 @@ namespace ReembolsoBAS.Controllers
         [Authorize(Roles = "empregado,admin")]
         public async Task<IActionResult> SolicitarReembolso([FromForm] ReembolsoRequest req)
         {
-            if (req.Beneficiario.Length == 0)
-                return BadRequest("É preciso ter pelo menos um lançamento.");
+            // 1) Validação básica do formato "YYYY-MM"
+            if (string.IsNullOrWhiteSpace(req.Periodo)
+                || req.Periodo.Length != 7
+                || !DateTime.TryParseExact(
+                     req.Periodo + "-01",        // adiciona dia 01 para criar um DateTime válido
+                     "yyyy-MM-dd",
+                     CultureInfo.InvariantCulture,
+                     DateTimeStyles.None,
+                     out var periodoDt))
+            {
+                return BadRequest("Período inválido. Envie no formato YYYY-MM.");
+            }
 
-            var fimMes = new DateTime(req.Periodo.Year, req.Periodo.Month, 1)
-                         .AddMonths(1).AddDays(-1);
-            if (DateTime.Today > fimMes.AddDays(5))
+            // 2) Valida prazo: até dia 5 do mês seguinte
+            var ultimoDiaMes = new DateTime(periodoDt.Year, periodoDt.Month, 1)
+                                 .AddMonths(1)
+                                 .AddDays(-1);
+            if (DateTime.Today > ultimoDiaMes.AddDays(5))
                 return BadRequest("Período fora do prazo para solicitação.");
 
+            // 3) Encontra o empregado
             var emp = await _ctx.Empregados
                                 .FirstOrDefaultAsync(e => e.Matricula == req.Matricula);
             if (emp == null)
                 return BadRequest("Matrícula não encontrada.");
 
-            // Monta lista de ReembolsoLancamento
-            var lancamentos = new List<ReembolsoLancamento>();
-            for (int i = 0; i < req.Beneficiario.Length; i++)
+            // 4) Valida lançamentos paralelos
+            int n = req.Beneficiario.Length;
+            if (n == 0
+             || req.GrauParentesco.Length != n
+             || req.DataPagamento.Length != n
+             || req.ValorPago.Length != n)
+            {
+                return BadRequest("Todos os campos de lançamento devem ter o mesmo número de itens.");
+            }
+
+            // 5) Monta os lançamentos
+            var lancamentos = new List<ReembolsoLancamento>(n);
+            for (int i = 0; i < n; i++)
             {
                 lancamentos.Add(new ReembolsoLancamento
                 {
                     Beneficiario = req.Beneficiario[i],
-                    GrauParentesco = req.GrauParentesco.Length > i ? req.GrauParentesco[i] : "",
-                    DataPagamento = req.DataPagamento.Length > i ? req.DataPagamento[i] : DateTime.MinValue,
-                    ValorPago = req.ValorPago.Length > i ? req.ValorPago[i] : 0m,
-                    ValorRestituir = (req.ValorPago.Length > i ? req.ValorPago[i] : 0m) * 0.5m
+                    GrauParentesco = req.GrauParentesco[i],
+                    DataPagamento = req.DataPagamento[i],
+                    ValorPago = req.ValorPago[i],
+                    ValorRestituir = req.ValorPago[i] * 0.5m
                 });
             }
 
+            // 6) Cria o reembolso
             var reembolso = new Reembolso
             {
                 MatriculaEmpregado = req.Matricula,
-                Periodo = req.Periodo,
+                TipoSolicitacao = req.TipoSolicitacao,
+                Periodo = periodoDt,            // usa o DateTime já convertido
                 ValorSolicitado = req.ValorSolicitado,
                 Status = StatusReembolso.Pendente,
                 CaminhoDocumentos = await _fileStorage.SaveFiles(req.Documentos),

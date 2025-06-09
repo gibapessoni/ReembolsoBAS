@@ -1,4 +1,5 @@
 ﻿using ReembolsoBAS.Models;
+using ReembolsoBAS.Models.Enums;
 using System.ComponentModel.DataAnnotations.Schema;
 
 public class Reembolso
@@ -7,6 +8,7 @@ public class Reembolso
     public string NumeroRegistro { get; set; } = Guid.NewGuid().ToString("N").Substring(0, 8).ToUpper();
 
     public string MatriculaEmpregado { get; set; } = null!;
+    public TipoSolicitacaoEnum TipoSolicitacao { get; set; }
 
     public DateTime Periodo { get; set; }
     public string Status { get; set; } = StatusReembolso.Pendente;
