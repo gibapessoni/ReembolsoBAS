@@ -13,7 +13,7 @@ using System.Text.Json.Serialization;
 
 var builder = WebApplication.CreateBuilder(args);
 
-// bloco para gerar hash na senha
+// bloco para gerar hash na senha apenas para gerar o hash em runtime para testes
 var senhaEmTextoPlano = "Senha123!";
 var hashGerado = BCrypt.Net.BCrypt.HashPassword(senhaEmTextoPlano, workFactor: 12);
 Console.WriteLine($"[DEBUG] Hash gerado em runtime para 'Senha123!': {hashGerado}");

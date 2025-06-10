@@ -12,7 +12,6 @@ namespace ReembolsoBAS.Models
 
         public string Beneficiario { get; set; } = string.Empty;
 
-        // altera string para enum
         public GrauParentescoEnum GrauParentesco { get; set; }
 
         public DateTime DataPagamento { get; set; }

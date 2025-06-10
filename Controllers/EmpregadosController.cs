@@ -10,7 +10,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using ReembolsoBAS.Data;
 using ReembolsoBAS.Models;
-using BCrypt.Net;  // Para gerar hash de senha
+using BCrypt.Net; 
 
 namespace ReembolsoBAS.Controllers
 {
@@ -54,7 +54,7 @@ namespace ReembolsoBAS.Controllers
                 return Conflict($"Já existe um usuário com matrícula '{emp.Matricula}'.");
 
             // 2.3) Cria o Usuário associado ao Empregado
-            //      - Poderíamos receber senha em claro, mas aqui vamos definir uma senha padrão
+            //      - Poderíamos receber senha em branco, mas aqui vamos definir uma senha padrão
             //        (por exemplo 'Senha123!') e gerar o hash. O perfil fica 'empregado'.
             string senhaEmTextoPlano = "Senha123!";
             string hash = BCrypt.Net.BCrypt.HashPassword(senhaEmTextoPlano, workFactor: 12);
@@ -62,7 +62,7 @@ namespace ReembolsoBAS.Controllers
             var novoUsuario = new Usuario
             {
                 Nome = emp.Nome,
-                Email = $"{emp.Matricula}@empresa.com", // Exemplo de email gerado
+                Email = $"{emp.Matricula}@bas.com", //exemplo de email. alterar esse @bas.com para o domínio correto
                 SenhaHash = hash,
                 Perfil = "empregado",
                 Matricula = emp.Matricula
@@ -99,10 +99,6 @@ namespace ReembolsoBAS.Controllers
             if (id != emp.Id)
                 return BadRequest();
 
-            // Aqui, se a matrícula puder mudar, precisaríamos ajustar o Usuário.
-            // Como regra geral, não permitiremos mudar a Matricula. 
-            // Se quiser permitir, teríamos de buscar o antigo usuário e alterar a FK…
-
             _ctx.Entry(emp).State = EntityState.Modified;
             await _ctx.SaveChangesAsync();
             return NoContent();
@@ -110,7 +106,7 @@ namespace ReembolsoBAS.Controllers
 
         // 5. Exclui um empregado (somente Admin)
         [HttpDelete("{id:int}")]
-        [Authorize(Roles = "admin")]
+        [Authorize(Roles = "admin")] //se quiser colocar RH também, pode ser "rh,admin"
         public async Task<IActionResult> Delete(int id)
         {
             var emp = await _ctx.Empregados.FindAsync(id);
@@ -182,7 +178,7 @@ namespace ReembolsoBAS.Controllers
                 novosEmpregados.Add(emp);
 
                 // cria usuário padrão (senha “Senha123!”)
-                string senhaPadrao = "Senha123!";
+                string senhaPadrao = "Senha123!"; // senha padrão para novos usuários
                 string hashSenha = BCrypt.Net.BCrypt.HashPassword(senhaPadrao, workFactor: 12);
 
                 var usu = new Usuario

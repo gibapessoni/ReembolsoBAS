@@ -53,14 +53,14 @@ namespace ReembolsoBAS.Controllers
 
         // 2. EMPREGADO: Nova Solicitação de Reembolso
         [HttpPost("solicitar")]
-        [Authorize(Roles = "empregado,admin")]
+        [Authorize(Roles = "empregado,admin,diretor-presidente")]
         public async Task<IActionResult> SolicitarReembolso([FromForm] ReembolsoRequest req)
         {
-            // 1) Validação básica do formato "YYYY-MM"
+            // 1) Validação do formato "YYYY-MM"
             if (string.IsNullOrWhiteSpace(req.Periodo)
                 || req.Periodo.Length != 7
                 || !DateTime.TryParseExact(
-                     req.Periodo + "-01",        // adiciona dia 01 para criar um DateTime válido
+                     req.Periodo + "-01",
                      "yyyy-MM-dd",
                      CultureInfo.InvariantCulture,
                      DateTimeStyles.None,
@@ -69,20 +69,20 @@ namespace ReembolsoBAS.Controllers
                 return BadRequest("Período inválido. Envie no formato YYYY-MM.");
             }
 
-            // 2) Valida prazo: até dia 5 do mês seguinte
+            // 2) Valida prazo (até dia 5 do mês seguinte)
             var ultimoDiaMes = new DateTime(periodoDt.Year, periodoDt.Month, 1)
                                  .AddMonths(1)
                                  .AddDays(-1);
             if (DateTime.Today > ultimoDiaMes.AddDays(5))
                 return BadRequest("Período fora do prazo para solicitação.");
 
-            // 3) Encontra o empregado
+            // 3) Carrega o empregado
             var emp = await _ctx.Empregados
                                 .FirstOrDefaultAsync(e => e.Matricula == req.Matricula);
             if (emp == null)
                 return BadRequest("Matrícula não encontrada.");
 
-            // 4) Valida lançamentos paralelos
+            // 4) Validação dos arrays de lançamentos
             int n = req.Beneficiario.Length;
             if (n == 0
              || req.GrauParentesco.Length != n
@@ -92,7 +92,7 @@ namespace ReembolsoBAS.Controllers
                 return BadRequest("Todos os campos de lançamento devem ter o mesmo número de itens.");
             }
 
-            // 5) Monta os lançamentos
+            // 5) Monta a lista de lançamentos
             var lancamentos = new List<ReembolsoLancamento>(n);
             for (int i = 0; i < n; i++)
             {
@@ -106,12 +106,12 @@ namespace ReembolsoBAS.Controllers
                 });
             }
 
-            // 6) Cria o reembolso
+            // 6) Cria o reembolso **em PENDENTE**
             var reembolso = new Reembolso
             {
                 MatriculaEmpregado = req.Matricula,
                 TipoSolicitacao = req.TipoSolicitacao,
-                Periodo = periodoDt,            // usa o DateTime já convertido
+                Periodo = periodoDt,
                 ValorSolicitado = req.ValorSolicitado,
                 Status = StatusReembolso.Pendente,
                 CaminhoDocumentos = await _fileStorage.SaveFiles(req.Documentos),
@@ -121,7 +121,12 @@ namespace ReembolsoBAS.Controllers
 
             _ctx.Reembolsos.Add(reembolso);
             await _ctx.SaveChangesAsync();
-            return Ok(reembolso);
+            
+            return CreatedAtAction(
+                nameof(GetMeus),
+                new { },
+                reembolso
+            );
         }
 
 
@@ -133,36 +138,37 @@ namespace ReembolsoBAS.Controllers
             var reembolso = await _ctx.Reembolsos
                                       .Include(r => r.Empregado)
                                       .FirstOrDefaultAsync(r => r.Id == id);
-            if (reembolso == null)
-                return NotFound();
+            if (reembolso == null) return NotFound();
 
             var matriculaLogado = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            // Só o criador (ou admin) pode editar
             if (reembolso.MatriculaEmpregado != matriculaLogado && !User.IsInRole("admin"))
                 return Forbid();
 
-            // Só edita se ainda estiver pendente ou devolvido para correção
-            if (reembolso.Status != StatusReembolso.Pendente &&
-                reembolso.Status != StatusReembolso.DevolvidoRH &&
-                !User.IsInRole("admin"))
+            // converte o período:
+            if (string.IsNullOrWhiteSpace(req.Periodo)
+                || req.Periodo.Length != 7
+                || !DateTime.TryParseExact(
+                     req.Periodo + "-01",
+                     "yyyy-MM-dd",
+                     CultureInfo.InvariantCulture,
+                     DateTimeStyles.None,
+                     out var periodoDt))
             {
-                return BadRequest("Não é possível editar um reembolso já validado ou aprovado.");
+                return BadRequest("Período inválido. Envie no formato YYYY-MM.");
             }
 
-            // Atualiza campos permitidos: ValorSolicitado, Documentos e Periodo se necessário
-            var fimMes = new DateTime(req.Periodo.Year, req.Periodo.Month, 1)
-                         .AddMonths(1).AddDays(-1);
-            if (DateTime.Today > fimMes.AddDays(5) && !User.IsInRole("admin"))
+            // valida prazo
+            var ultimoDiaMes = new DateTime(periodoDt.Year, periodoDt.Month, 1)
+                                 .AddMonths(1)
+                                 .AddDays(-1);
+            if (DateTime.Today > ultimoDiaMes.AddDays(5) && !User.IsInRole("admin"))
                 return BadRequest("Período fora do prazo para alteração.");
 
-            reembolso.Periodo = req.Periodo;
+            // aplica mudanças
+            reembolso.Periodo = periodoDt;
             reembolso.ValorSolicitado = req.ValorSolicitado;
-
-            if (req.Documentos != null && req.Documentos.Count > 0)
-            {
-                // Sobrescreve documentos antigos ou concatena? Aqui vamos sobrescrever
+            if (req.Documentos?.Count > 0)
                 reembolso.CaminhoDocumentos = await _fileStorage.SaveFiles(req.Documentos);
-            }
 
             _ctx.Entry(reembolso).State = EntityState.Modified;
             await _ctx.SaveChangesAsync();
@@ -171,7 +177,7 @@ namespace ReembolsoBAS.Controllers
 
         // 2.2 EMPREGADO: Excluir uma Solicitação de Reembolso
         [HttpDelete("{id:int}")]
-        [Authorize(Roles = "empregado,admin")]
+        [Authorize(Roles = "empregado,admin,diretor-presidente")]
         public async Task<IActionResult> ExcluirReembolso(int id)
         {
             var reembolso = await _ctx.Reembolsos
@@ -212,7 +218,7 @@ namespace ReembolsoBAS.Controllers
 
         // 4. RH: Validar um Reembolso (marca como “ValidadoRH”)
         [HttpPost("validar/{id:int}")]
-        [Authorize(Roles = "rh,gerente_rh,admin")]
+        [Authorize(Roles = "rh,gerente_rh,admin,diretor-presidente")]
         public async Task<IActionResult> Validar(int id)
         {
             await _service.ValidarReembolso(id);

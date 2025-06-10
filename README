@@ -1,181 +1,116 @@
 Sistema de Gestão de Reembolsos BAS
+
 Um sistema para gerenciar solicitações de reembolso de despesas médicas, com perfis de administrador, RH, gerente RH e empregado.
-Pré-requisitos
-.NET 8.0 SDK
-Baixe em: https://dotnet.microsoft.com/download
 
-SQL Server (ou SQL Server Express)
+📋 Pré-requisitos
 
-Você pode rodar localmente (ex.: SQL Server Developer/Express) ou usar um container Docker do SQL Server.
+.NET 7.0 SDK
 
-Editor de código (por exemplo, Visual Studio 2022/2023, VS Code, Rider)
+Node.js (opcional para frontend)
 
-Git (para clonar o repositório)
+Configuração do Banco de Dados
 
-(Opcional) Docker e Docker Compose
-Caso deseje construir e rodar a API dentro de container, o Dockerfile já está fornecido.
+Execute o SQL Server
 
-🛠️ Passo a passo para configurar o projeto
-1. Clonar o repositório
-No terminal, execute:
+Crie o banco ReembolsoBAS
+
+Ajuste a connection string em appsettings.json:
+
+"ConnectionStrings": {
+  "DefaultConnection": "Server=seu_servidor;Database=ReembolsoBAS;User Id=seu_user;Password=sua_senha;"
+}
+
+No terminal:
+
+dotnet ef database update
+
+🚀 Instalação e Configuração
+
+1. Clonar o Repositório
 
 git clone https://github.com/gibapessoni/ReembolsoBAS.git
 cd ReembolsoBAS
-2. Ajustar a Connection String no appsettings.json
-Abra o arquivo ReembolsoBAS/appsettings.json e encontre a seção:
 
-"ConnectionStrings": {
-  "DefaultConnection": "Server=seu_servidor;Database=ReembolsoBAS;User Id=seu_user;Password=sua_senha;TrustServerCertificate=True;"
+2. Configurar JWT em Desenvolvimento
+
+Para manter a chave secreta fora do código:
+
+dotnet user-secrets init
+# Gere uma chave de 32 bytes em Base64:
+[Convert]::ToBase64String((New-Object System.Security.Cryptography.RNGCryptoServiceProvider).GetBytes(32))
+# Copie o valor e então:
+
+dotnet user-secrets set "Jwt:Key" "<sua_chave_base64>"
+
+3. Variável de Ambiente em Produção
+
+No servidor de produção, defina a variável de ambiente Jwt__Key:
+
+Windows (PowerShell):
+
+setx Jwt__Key "<sua_chave_base64>"
+
+Linux/macOS:
+
+export Jwt__Key="<sua_chave_base64>"
+
+Não deixe o valor real de Jwt:Key no appsettings.json, deixe-o em branco ou inexistente no arquivo.
+
+"Jwt": {
+  "Key": ""
 }
-Substitua "seu_servidor" pelo nome ou endereço do seu SQL Server (por ex.: localhost\SQLEXPRESS, 127.0.0.1 ou nome-do-container).
 
-Substitua "seu_user" e "sua_senha" pelas credenciais do seu banco, se não usar autenticação integrada.
+4. Executar a API
 
-Se preferir usar Autenticação Integrada (Trusted Connection), coloque algo como:
+dotnet restore
+dotnet build
+dotnet run
 
+A aplicação irá escutar em https://localhost:7143.
 
-"DefaultConnection": "Server=localhost\\SQLEXPRESS;Database=ReembolsoBAS;Integrated Security=True;TrustServerCertificate=True;"
-Salve o arquivo.
+🔑 Geração de Token JWT
 
-3. Criar o banco de dados e executar as migrations
-Abra um terminal na pasta raiz do projeto (onde está o arquivo .csproj).
+Crie um usuário no banco (Exemplo SQL):
 
-Certifique-se de que o comando dotnet (versão 8.0) está disponível no seu PATH.
+INSERT INTO Empregados (Matricula, Nome, Diretoria, Superintendencia, Cargo, Ativo, ValorMaximoMensal)
+VALUES ('ADM001', 'Administrador', 'TI', 'TI', 'Admin', 1, 5000.00);
 
-		dotnet --version
-Deve retornar algo como 8.0.x.
+INSERT INTO Usuarios (Nome, Email, SenhaHash, Perfil, Matricula)
+VALUES (
+  'Administrador',
+  'admin@empresa.com',
+  '<hash_bcrypt_da_senha>',
+  'admin',
+  'ADM001'
+);
 
-Rode os comandos do EF Core para gerar as tabelas no SQL Server:
+Faça login para obter o token:
 
-# 3.1. Adicionar a migration inicial (somente se ainda não existirem migrations):
-dotnet ef migrations add InitialCreate --context AppDbContext
+curl -X POST https://localhost:7143/api/Auth/login \
+  -H "Content-Type: application/json" \
+  -d '{"Email":"admin@empresa.com","Senha":"Senha123!"}'
 
-# 3.2. Aplicar a migration ao banco (criar o banco caso ainda não exista):
-dotnet ef database update --context AppDbContext
-O comando acima vai criar as tabelas necessárias (Usuarios, Empregados, Reembolsos, PoliticasBAS, ReembolsoLancamentos etc.) dentro do banco ReembolsoBAS.
+A resposta conterá:
 
-Se você já tiver rodado essas migrations antes, pode pular a etapa add InitialCreate e ir direto em database update.
+{
+  "token": "eyJ...",
+  "perfil": "admin",
+  "matricula": "ADM001",
+  "nome": "Administrador"
+}
 
-4. Executar a API localmente (.NET 8.0)
-Ainda no terminal, dentro da pasta do projeto:
+Use esse token em chamadas protegidas:
 
-		cd ReembolsoBAS
-		dotnet run
-O ASP.NET levantará a aplicação e, por padrão, utilizaremos https://localhost:5001 (ou a porta dinâmica que aparecer no console).
+curl -H "Authorization: Bearer eyJ..." https://localhost:7143/api/Empregados
 
-Você verá no console algo como:
+📄 Endpoints Principais
 
-Building...
-Now listening on: https://localhost:5001
-Application started. Press Ctrl+C to shut down.
+POST /api/Auth/login – Autentica usuário e gera JWT.
 
-5. Testar no Swagger UI
-Assim que a API estiver rodando, abra o navegador em:
+GET  /api/Empregados – Lista empregados (rh, admin).
 
-https://localhost:5001/swagger/index.html
-O Swagger exibirá todas as rotas disponíveis (sem exigir nenhum token de JWT).
+POST /api/Reembolsos/solicitar – Cria requisição de reembolso (empregado).
 
-Você poderá testar cada endpoint diretamente pela interface do Swagger.
+POST /api/Reembolsos/validar/{id} – Valida reembolso (rh).
 
-📂 Estrutura principal do projeto
-ReembolsoBAS/
-
-Controllers/
-
--EmpregadosController.cs
-
--PoliticasController.cs
-
--ReembolsosController.cs
-
-… (outros controllers, agora sem nenhum [Authorize])
-
-Data/
-
--AppDbContext.cs (configuração do EF Core)
-
-Models/
-
--Empregado.cs, Reembolso.cs, Usuario.cs, PoliticaBAS.cs, etc.
-
-Services/
-
--FileStorageService.cs (para upload de arquivos)
-
--ReembolsoService.cs (lógica de negócios de validação/aprovação)
-
-Uploads/
-
--Pasta física (no disco) onde arquivos enviados serão salvos.
-
-Program.cs (configuração geral, sem autenticação)
-
-appsettings.json (connection string e logging)
-
-Dockerfile (explicado abaixo)
-
-Para quem quiser usar Docker
-Existe um Dockerfile já configurado para empacotar a API numa imagem Docker. Ele faz o build da aplicação e expõe na porta 80 (HTTP). A estrutura é dividida em quatro estágios:
-
-Passo a passo para usar o Dockerfile
-Construir a imagem Docker
-Na raiz do projeto (onde fica o Dockerfile), execute:
-
-docker build -t reembolsobas-api:latest .
-Isso irá gerar uma imagem local chamada reembolsobas-api:latest.
-
-Rodar o container
-
-		docker run -d \
-		  -p 8080:80 \
-		  -e ConnectionStrings__DefaultConnection="Server=seu_servidor;Database=ReembolsoBAS;User Id=seu_user;Password=sua_senha;TrustServerCertificate=True;" \
-		  --name reembolsobas_container \
-		  reembolsobas-api:latest
-Explicação dos parâmetros:
-
--d roda o container em modo “detach” (em segundo plano).
-
--p 8080:80 mapeia a porta 80 do container para a porta 8080 da sua máquina host.
-
--e ConnectionStrings__DefaultConnection="..." passa a connection string via variável de ambiente (use __ para separar níveis JSON).
-
---name reembolsobas_container dá um nome ao container.
-
-Testar a API dentro do container
-Depois que o container estiver rodando, abra no navegador:
-
-		http://localhost:8080/swagger/index.html
-Ou faça chamadas de API apontando para http://localhost:8080/api/....
-
-Parar e remover o container (quando não precisar mais)
-
-		docker stop reembolsobas_container
-		docker rm reembolsobas_container
-
-Se quiser apagar também a imagem local:
-		docker rmi reembolsobas-api:latest
-
-
-		 Conclusão
-Após seguir estes passos, o usuário que clonar o repositório terá:
-
-O projeto configurado para .NET 8.0.
-
-O banco de dados criado e atualizado automaticamente pelas migrations (EF Core).
-
-Uma API rodando em https://localhost:5001 (ou em outra porta que o .NET escolheu).
-
-A pasta Uploads/ pronta para armazenar documentos enviados.
-
-A possibilidade de rodar tudo nativamente ou via Docker, sem autenticação JWT.
-
-Dessa forma, quem baixar o projeto poderá começar a usar imediatamente, chamando qualquer rota (GET, POST, PUT, DELETE) no Swagger ou pelo seu cliente HTTP favorito.
-
-Se restar alguma dúvida ou ocorrer algum erro, verifique:
-
-A connection string (se está apontando para o SQL Server correto).
-
-Permissões de gravação na pasta Uploads/.
-
-
-
+POST /api/Reembolsos/aprovar/{id} – Aprova reembolso (gerente RH).
