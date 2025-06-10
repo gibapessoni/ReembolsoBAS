@@ -1,15 +1,17 @@
-﻿using System;
-using System.IdentityModel.Tokens.Jwt;
-using System.Security.Claims;
-using System.Text;
-using System.Threading.Tasks;
-using BCrypt.Net;
+﻿using BCrypt.Net;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Configuration;
 using Microsoft.IdentityModel.Tokens;
 using ReembolsoBAS.Data;
 using ReembolsoBAS.Models;
+using ReembolsoBAS.Models.Dto;
+using System;
+using System.IdentityModel.Tokens.Jwt;
+using System.Security.Claims;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace ReembolsoBAS.Controllers
 {
@@ -33,7 +35,6 @@ namespace ReembolsoBAS.Controllers
             var usuario = await _ctx.Usuarios
                                     .FirstOrDefaultAsync(u => u.Email == request.Email);
 
-            // INSIRA AQUI OS CONSOLE.WriteLine PARA DEBUG:
             if (usuario == null)
             {
                 Console.WriteLine($"[DEBUG] Usuário com e-mail '{request.Email}' NÃO encontrado.");
@@ -60,7 +61,34 @@ namespace ReembolsoBAS.Controllers
                 nome = usuario.Nome
             });
         }
+        
+        // 2. USUÁRIO: Trocar a própria senha        
+        [HttpPost("change-password")]
+        [Authorize]  // precisa estar autenticado
+        public async Task<IActionResult> ChangePassword([FromBody] ChangePasswordRequest req)
+        {
+            // 1) Identifica usuário pelo claim de matrícula
+            var matricula = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (string.IsNullOrEmpty(matricula))
+                return Unauthorized();
 
+            // 2) Busca o usuário no banco
+            var usuario = await _ctx.Usuarios
+                                    .FirstOrDefaultAsync(u => u.Matricula == matricula);
+            if (usuario == null)
+                return Unauthorized();
+
+            // 3) Verifica se a senha atual está correta
+            if (!BCrypt.Net.BCrypt.Verify(req.CurrentPassword, usuario.SenhaHash))
+                return BadRequest("Senha atual incorreta.");
+
+            // 4) Gera o hash da nova senha e salva
+            usuario.SenhaHash = BCrypt.Net.BCrypt.HashPassword(req.NewPassword, workFactor: 12);
+            await _ctx.SaveChangesAsync();
+
+            // 5) Retorna 204 No Content para indicar sucesso
+            return NoContent();
+        }
 
         private string GenerateJwtToken(Usuario usuario)
         {
