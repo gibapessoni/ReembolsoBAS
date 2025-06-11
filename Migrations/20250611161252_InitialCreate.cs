@@ -49,23 +49,6 @@ namespace ReembolsoBAS.Migrations
                 });
 
             migrationBuilder.CreateTable(
-                name: "Usuarios",
-                columns: table => new
-                {
-                    Id = table.Column<int>(type: "int", nullable: false)
-                        .Annotation("SqlServer:Identity", "1, 1"),
-                    Nome = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Email = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    SenhaHash = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Perfil = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    Matricula = table.Column<string>(type: "nvarchar(max)", nullable: false)
-                },
-                constraints: table =>
-                {
-                    table.PrimaryKey("PK_Usuarios", x => x.Id);
-                });
-
-            migrationBuilder.CreateTable(
                 name: "Reembolsos",
                 columns: table => new
                 {
@@ -73,6 +56,7 @@ namespace ReembolsoBAS.Migrations
                         .Annotation("SqlServer:Identity", "1, 1"),
                     NumeroRegistro = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     MatriculaEmpregado = table.Column<string>(type: "nvarchar(450)", nullable: false),
+                    TipoSolicitacao = table.Column<short>(type: "smallint", nullable: false),
                     Periodo = table.Column<DateTime>(type: "datetime2", nullable: false),
                     Status = table.Column<string>(type: "nvarchar(max)", nullable: false),
                     DataEnvio = table.Column<DateTime>(type: "datetime2", nullable: false),
@@ -93,6 +77,30 @@ namespace ReembolsoBAS.Migrations
                 });
 
             migrationBuilder.CreateTable(
+                name: "Usuarios",
+                columns: table => new
+                {
+                    Id = table.Column<int>(type: "int", nullable: false)
+                        .Annotation("SqlServer:Identity", "1, 1"),
+                    EmpregadoId = table.Column<int>(type: "int", nullable: false),
+                    Matricula = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false),
+                    Nome = table.Column<string>(type: "nvarchar(100)", maxLength: 100, nullable: false),
+                    Email = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    SenhaHash = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    Perfil = table.Column<string>(type: "nvarchar(50)", maxLength: 50, nullable: false)
+                },
+                constraints: table =>
+                {
+                    table.PrimaryKey("PK_Usuarios", x => x.Id);
+                    table.ForeignKey(
+                        name: "FK_Usuarios_Empregados_EmpregadoId",
+                        column: x => x.EmpregadoId,
+                        principalTable: "Empregados",
+                        principalColumn: "Id",
+                        onDelete: ReferentialAction.Cascade);
+                });
+
+            migrationBuilder.CreateTable(
                 name: "ReembolsoLancamentos",
                 columns: table => new
                 {
@@ -100,7 +108,7 @@ namespace ReembolsoBAS.Migrations
                         .Annotation("SqlServer:Identity", "1, 1"),
                     ReembolsoId = table.Column<int>(type: "int", nullable: false),
                     Beneficiario = table.Column<string>(type: "nvarchar(max)", nullable: false),
-                    GrauParentesco = table.Column<string>(type: "nvarchar(max)", nullable: false),
+                    GrauParentesco = table.Column<short>(type: "smallint", nullable: false),
                     DataPagamento = table.Column<DateTime>(type: "datetime2", nullable: false),
                     ValorPago = table.Column<decimal>(type: "decimal(18,2)", nullable: false),
                     ValorRestituir = table.Column<decimal>(type: "decimal(18,2)", nullable: false)
@@ -125,6 +133,17 @@ namespace ReembolsoBAS.Migrations
                 name: "IX_Reembolsos_MatriculaEmpregado",
                 table: "Reembolsos",
                 column: "MatriculaEmpregado");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Usuarios_EmpregadoId",
+                table: "Usuarios",
+                column: "EmpregadoId");
+
+            migrationBuilder.CreateIndex(
+                name: "IX_Usuarios_Matricula",
+                table: "Usuarios",
+                column: "Matricula",
+                unique: true);
         }
 
         /// <inheritdoc />

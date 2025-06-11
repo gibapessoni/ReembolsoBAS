@@ -6,9 +6,7 @@ namespace ReembolsoBAS.Data
     public class AppDbContext : DbContext
     {
         public AppDbContext(DbContextOptions<AppDbContext> options)
-            : base(options)
-        {
-        }
+            : base(options) { }
 
         public DbSet<Usuario> Usuarios { get; set; }
         public DbSet<Empregado> Empregados { get; set; }
@@ -18,11 +16,9 @@ namespace ReembolsoBAS.Data
 
         protected override void OnModelCreating(ModelBuilder mb)
         {
-            /*-------------------------------------------------------------
-             * 1) EMPREGADO x REEMBOLSO – chave pela 'Matricula'
-             *------------------------------------------------------------*/
+            // 1) Empregado ↔ Reembolso (mantém por matrícula)
             mb.Entity<Empregado>()
-              .HasAlternateKey(e => e.Matricula); // matrícula é UNIQUE
+              .HasAlternateKey(e => e.Matricula);
 
             mb.Entity<Reembolso>()
               .HasOne(r => r.Empregado)
@@ -30,23 +26,23 @@ namespace ReembolsoBAS.Data
               .HasForeignKey(r => r.MatriculaEmpregado)
               .HasPrincipalKey(e => e.Matricula);
 
-            /*-------------------------------------------------------------
-             * 2) REEMBOLSO x LANÇAMENTO
-             *------------------------------------------------------------*/
+            // 2) Reembolso ↔ Lançamentos
             mb.Entity<ReembolsoLancamento>()
               .HasOne(l => l.Reembolso)
               .WithMany(r => r.Lancamentos)
               .HasForeignKey(l => l.ReembolsoId);
 
-            /*-------------------------------------------------------------
-             * 3) USUARIO x EMPREGADO – vincular pela Matrícula
-             *    Aqui dizemos que Usuario.Matricula é FK para Empregado.Matricula
-             *------------------------------------------------------------*/
+            // 3) Usuário ↔ Empregado pela FK numérica EmpregadoId
             mb.Entity<Usuario>()
               .HasOne(u => u.Empregado)
-              .WithOne() // se você não tiver navegação inversa em Empregado, use sem parâmetro
-              .HasForeignKey<Usuario>(u => u.Matricula)            // FK em Usuario.Matricula
-              .HasPrincipalKey<Empregado>(e => e.Matricula);       // PK/AK em Empregado.Matricula
+              .WithMany()
+              .HasForeignKey(u => u.EmpregadoId)
+              .OnDelete(DeleteBehavior.Cascade);
+
+            // 4)  Criar índice em Matricula também
+            mb.Entity<Usuario>()
+              .HasIndex(u => u.Matricula)
+              .IsUnique();
         }
     }
 }

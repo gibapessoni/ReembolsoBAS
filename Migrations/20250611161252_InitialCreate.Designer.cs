@@ -12,8 +12,8 @@ using ReembolsoBAS.Data;
 namespace ReembolsoBAS.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    [Migration("20250609203230_AddTipoSolicitacaoAndParentescoEnum")]
-    partial class AddTipoSolicitacaoAndParentescoEnum
+    [Migration("20250611161252_InitialCreate")]
+    partial class InitialCreate
     {
         /// <inheritdoc />
         protected override void BuildTargetModel(ModelBuilder modelBuilder)
@@ -190,23 +190,31 @@ namespace ReembolsoBAS.Migrations
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int>("EmpregadoId")
+                        .HasColumnType("int");
+
                     b.Property<string>("Matricula")
                         .IsRequired()
-                        .HasColumnType("nvarchar(450)");
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("Nome")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<string>("Perfil")
                         .IsRequired()
-                        .HasColumnType("nvarchar(max)");
+                        .HasMaxLength(50)
+                        .HasColumnType("nvarchar(50)");
 
                     b.Property<string>("SenhaHash")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("EmpregadoId");
 
                     b.HasIndex("Matricula")
                         .IsUnique();
@@ -240,9 +248,8 @@ namespace ReembolsoBAS.Migrations
             modelBuilder.Entity("ReembolsoBAS.Models.Usuario", b =>
                 {
                     b.HasOne("ReembolsoBAS.Models.Empregado", "Empregado")
-                        .WithOne()
-                        .HasForeignKey("ReembolsoBAS.Models.Usuario", "Matricula")
-                        .HasPrincipalKey("ReembolsoBAS.Models.Empregado", "Matricula")
+                        .WithMany()
+                        .HasForeignKey("EmpregadoId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
 

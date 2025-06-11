@@ -42,43 +42,35 @@ namespace ReembolsoBAS.Controllers
         public async Task<IActionResult> Create([FromBody] Empregado emp)
         {
             // 2.1) Verifica se já existe outro Empregado com essa matrícula
-            bool existeEmp = await _ctx.Empregados
-                                       .AnyAsync(e => e.Matricula == emp.Matricula);
-            if (existeEmp)
+            if (await _ctx.Empregados.AnyAsync(e => e.Matricula == emp.Matricula))
                 return Conflict($"Já existe um empregado com matrícula '{emp.Matricula}'.");
 
-            // 2.2) Verifica se já existe um Usuário com essa mesma matrícula
-            bool existeUsuario = await _ctx.Usuarios
-                                           .AnyAsync(u => u.Matricula == emp.Matricula);
-            if (existeUsuario)
-                return Conflict($"Já existe um usuário com matrícula '{emp.Matricula}'.");
+            // 2.2) Cria o Empregado primeiro
+            _ctx.Empregados.Add(emp);
+            await _ctx.SaveChangesAsync();  // emp.Id é populado aqui
 
-            // 2.3) Cria o Usuário associado ao Empregado
-            //      - Poderíamos receber senha em branco, mas aqui vamos definir uma senha padrão
-            //        (por exemplo 'Senha123!') e gerar o hash. O perfil fica 'empregado'.
-            string senhaEmTextoPlano = "Senha123!";
-            string hash = BCrypt.Net.BCrypt.HashPassword(senhaEmTextoPlano, workFactor: 12);
+            // 2.3) Gera hash de senha padrão
+            var senhaPadrao = "Senha123!";
+            var hash = BCrypt.Net.BCrypt.HashPassword(senhaPadrao, workFactor: 12);
 
+            // 2.4) Cria o Usuário associado ao Empregado
             var novoUsuario = new Usuario
             {
+                EmpregadoId = emp.Id,                      
+                Matricula = emp.Matricula,                 
                 Nome = emp.Nome,
-                Email = $"{emp.Matricula}@bas.com", //exemplo de email. alterar esse @bas.com para o domínio correto
+                Email = $"{emp.Matricula}@bas.com",
                 SenhaHash = hash,
-                Perfil = "empregado",
-                Matricula = emp.Matricula
-                // Empregado será associado automaticamente porque configuramos FK em OnModelCreating
+                Perfil = "empregado"
             };
 
-            // 2.4) Adiciona ambos ao contexto
-            _ctx.Empregados.Add(emp);
             _ctx.Usuarios.Add(novoUsuario);
-
-            // 2.5) Persiste no banco numa única operação
             await _ctx.SaveChangesAsync();
 
-            // 2.6) Retorna CreatedAtAction para o Empregado
+            // 2.5) Retorna CreatedAtAction apontando para GetById
             return CreatedAtAction(nameof(GetById), new { id = emp.Id }, emp);
         }
+
 
         // 3. Busca um empregado por Id (somente RH e Admin)
         [HttpGet("{id:int}")]
