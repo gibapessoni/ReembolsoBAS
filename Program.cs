@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.IdentityModel.Tokens;
 using Microsoft.OpenApi.Models;
 using ReembolsoBAS.Data;
+using ReembolsoBAS.Models.Dto;
 using ReembolsoBAS.Services;
 using System;
 using System;
@@ -32,6 +33,8 @@ builder.Services.AddDbContext<AppDbContext>(opts =>
 
 builder.Services.AddScoped<FileStorageService>();
 builder.Services.AddScoped<ReembolsoService>();
+
+builder.Services.Configure<ConfigArquivos>(builder.Configuration.GetSection("Arquivos"));
 
 // 3. Configurar JWT Authentication
 var jwtKey = builder.Configuration["Jwt:Key"]

@@ -58,7 +58,8 @@ namespace ReembolsoBAS.Controllers
                 token,
                 perfil = usuario.Perfil,
                 matricula = usuario.Matricula,
-                nome = usuario.Nome
+                nome = usuario.Nome,
+                id = usuario.Id
             });
         }
         
