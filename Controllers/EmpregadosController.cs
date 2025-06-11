@@ -27,7 +27,7 @@ namespace ReembolsoBAS.Controllers
 
         // 1. Retorna todos os empregados (somente RH e Admin)
         [HttpGet]
-        [Authorize(Roles = "rh,admin")]
+        [Authorize(Roles = "rh,admin,empregado")]
         public async Task<IActionResult> GetAll()
         {
             var lista = await _ctx.Empregados
@@ -82,7 +82,7 @@ namespace ReembolsoBAS.Controllers
 
         // 3. Busca um empregado por Id (somente RH e Admin)
         [HttpGet("{id:int}")]
-        [Authorize(Roles = "rh,admin")]
+        [Authorize(Roles = "rh,admin,empregado")]
         public async Task<IActionResult> GetById(int id)
         {
             var emp = await _ctx.Empregados.FindAsync(id);
