@@ -133,6 +133,9 @@ namespace ReembolsoBAS.Controllers
                 Lancamentos = lancamentos
             };
 
+            if (req.Documentos == null || req.Documentos.Count == 0)
+                return BadRequest("É obrigatório enviar ao menos um documento.");
+
             _ctx.Reembolsos.Add(reembolso);
             await _ctx.SaveChangesAsync();
             

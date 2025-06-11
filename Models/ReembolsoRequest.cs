@@ -15,7 +15,7 @@ public class ReembolsoRequest
     [Range(0.01, double.MaxValue)]
     public decimal ValorSolicitado { get; set; }
 
-    [Required] public IFormFileCollection Documentos { get; set; } = null!;
+    public IFormFileCollection? Documentos { get; set; }
 
     [Required, MinLength(1)]
     public string[] Beneficiario { get; set; } = Array.Empty<string>();
