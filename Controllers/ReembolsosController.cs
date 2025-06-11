@@ -35,16 +35,30 @@ namespace ReembolsoBAS.Controllers
             _service = service;
         }
 
-        // 1. EMPREGADO: “Meus Reembolsos”
+        // 1. EMPREGADO: Meus Reembolsos (ou um específico)
         [HttpGet("meus")]
         [Authorize(Roles = "empregado,admin")]
-        public async Task<IActionResult> GetMeus()
+        public async Task<IActionResult> GetMeus([FromQuery] int? id = null)
         {
             var matricula = User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (string.IsNullOrEmpty(matricula))
                 return BadRequest("Não foi possível identificar o usuário.");
 
+            if (id.HasValue)
+            {
+                var item = await _ctx.Reembolsos
+                    .Include(r => r.Empregado)
+                    .Include(r => r.Lancamentos)
+                    .Where(r => r.MatriculaEmpregado == matricula && r.Id == id.Value)
+                    .FirstOrDefaultAsync();
+                if (item == null)
+                    return NotFound($"Nenhum reembolso encontrado com Id = {id.Value}.");
+                return Ok(item);
+            }
+
             var lista = await _ctx.Reembolsos
+                                  .Include(r => r.Empregado)
+                                  .Include(r => r.Lancamentos)
                                   .Where(r => r.MatriculaEmpregado == matricula)
                                   .OrderByDescending(r => r.Periodo)
                                   .ToListAsync();
