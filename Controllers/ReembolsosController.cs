@@ -184,9 +184,27 @@ namespace ReembolsoBAS.Controllers
             // aplica mudanças
             reembolso.Periodo = periodoDt;
             reembolso.ValorSolicitado = req.ValorSolicitado;
-            if (req.Documentos?.Count > 0)
+            // **Novo**: verificar se usuário solicitou remover documento existente
+            if (req.RemoverDocumento)
+            {
+                // Se houver um documento atualmente, exclui o arquivo físico 
+                // e remove o registro dele no reembolso
+                if (!string.IsNullOrEmpty(reembolso.CaminhoDocumentos))
+                {
+                    await _fileStorage.DeleteFile(reembolso.CaminhoDocumentos);
+                }
+                reembolso.CaminhoDocumentos = null;
+            }
+            else if (req.Documentos?.Count > 0)
+            {
+                // Se novos documentos foram enviados, substitui o antigo pelos novos
+                if (!string.IsNullOrEmpty(reembolso.CaminhoDocumentos))
+                {
+                    // Opcional: apagar arquivo anterior antes de salvar o novo
+                    await _fileStorage.DeleteFile(reembolso.CaminhoDocumentos);
+                }
                 reembolso.CaminhoDocumentos = await _fileStorage.SaveFiles(req.Documentos);
-
+            }
             _ctx.Entry(reembolso).State = EntityState.Modified;
             await _ctx.SaveChangesAsync();
             return Ok(reembolso);

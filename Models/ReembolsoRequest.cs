@@ -30,4 +30,5 @@ public class ReembolsoRequest
 
     [Required, MinLength(1)]
     public GrauParentescoEnum[] GrauParentesco { get; set; }
+    public bool RemoverDocumento { get; set; }
 }
