@@ -68,6 +68,7 @@ builder.Services.AddAuthorization();
 builder.Services.AddEndpointsApiExplorer();
 builder.Services.AddSwaggerGen(c =>
 {
+    c.CustomSchemaIds(t => t.FullName);
     c.SwaggerDoc("v1", new() { Title = "ReembolsoBAS API", Version = "v1" });
 
     // 1) Defina o esquema de segurança como “Bearer” e crie uma referência
