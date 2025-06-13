@@ -166,9 +166,9 @@ namespace ReembolsoBAS.Controllers
 
             var erros = new List<string>();
             var novosEmpregados = new List<Empregado>();
-            var hashSetMatriculas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var hashMatriculas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            // ───── LÊ O ARQUIVO ─────
+            // ---------- LÊ O ARQUIVO ----------
             using var ms = new MemoryStream();
             await arquivo.CopyToAsync(ms);
             ms.Position = 0;
@@ -189,7 +189,7 @@ namespace ReembolsoBAS.Controllers
                     erros.Add($"Linha {linha}: matrícula vazia.");
                     continue;
                 }
-                if (!hashSetMatriculas.Add(matricula))
+                if (!hashMatriculas.Add(matricula))
                 {
                     erros.Add($"Linha {linha}: matrícula '{matricula}' repetida no arquivo.");
                     continue;
@@ -222,6 +222,7 @@ namespace ReembolsoBAS.Controllers
                     continue;
                 }
 
+                // Adiciona empregado válido
                 novosEmpregados.Add(new Empregado
                 {
                     Matricula = matricula,
@@ -237,22 +238,22 @@ namespace ReembolsoBAS.Controllers
             if (erros.Any()) return BadRequest(new { erros });
             if (!novosEmpregados.Any()) return NoContent();
 
-            // ───── GRAVA NO BANCO ─────
+            // ---------- GRAVA NO BANCO ----------
             await using var trx = await _ctx.Database.BeginTransactionAsync();
             try
             {
                 _ctx.Empregados.AddRange(novosEmpregados);
-                await _ctx.SaveChangesAsync();                    // gera IDs
+                await _ctx.SaveChangesAsync();          // gera IDs
 
-                // Cria usuários já com FK correta
+                // Agora cria usuários — PERFIL = e.Cargo
                 var novosUsuarios = novosEmpregados.Select(e => new Usuario
                 {
-                    EmpregadoId = e.Id,                           // ← FK resolvida aqui
+                    EmpregadoId = e.Id,                 // FK
                     Matricula = e.Matricula,
                     Nome = e.Nome,
                     Email = $"{e.Matricula}@reembolsobas.com",
                     SenhaHash = BCrypt.Net.BCrypt.HashPassword("Senha123!", 12),
-                    Perfil = "empregado"
+                    Perfil = e.Cargo               // <<< aqui
                 }).ToList();
 
                 _ctx.Usuarios.AddRange(novosUsuarios);
