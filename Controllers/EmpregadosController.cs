@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Threading.Tasks;
+﻿using BCrypt.Net;
 using ClosedXML.Excel;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -11,7 +7,12 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ReembolsoBAS.Data;
 using ReembolsoBAS.Models;
-using BCrypt.Net;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.IO;
+using System.Linq;
+using System.Threading.Tasks;
 
 namespace ReembolsoBAS.Controllers
 {
@@ -154,96 +155,129 @@ namespace ReembolsoBAS.Controllers
         }
 
         // 6. Upload em lote de empregados via Excel (somente RH ou Admin)
+        /// <summary>Importa empregados a partir de arquivo Excel (.xlsx).</summary>
         [HttpPost("upload")]
         [Authorize(Roles = "rh,admin")]
+        [Consumes("multipart/form-data")]
         public async Task<IActionResult> UploadListaEmpregados(IFormFile arquivo)
         {
             if (arquivo == null || arquivo.Length == 0)
-                return BadRequest("Arquivo obrigatório para upload.");
+                return BadRequest("Envie um arquivo Excel (.xlsx).");
 
+            var erros = new List<string>();
+            var novosEmpregados = new List<Empregado>();
+            var hashSetMatriculas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            // ───── LÊ O ARQUIVO ─────
+            using var ms = new MemoryStream();
+            await arquivo.CopyToAsync(ms);
+            ms.Position = 0;
+
+            using var wb = new XLWorkbook(ms);
+            var ws = wb.Worksheets.First();
+
+            if (ws.Row(1).CellsUsed().Count() < 7)
+                return BadRequest("Layout incorreto: mínimo 7 colunas.");
+
+            foreach (var row in ws.RowsUsed().Skip(1))
+            {
+                int linha = row.RowNumber();
+                var matricula = row.Cell(1).GetString().Trim().ToUpperInvariant();
+
+                if (string.IsNullOrEmpty(matricula))
+                {
+                    erros.Add($"Linha {linha}: matrícula vazia.");
+                    continue;
+                }
+                if (!hashSetMatriculas.Add(matricula))
+                {
+                    erros.Add($"Linha {linha}: matrícula '{matricula}' repetida no arquivo.");
+                    continue;
+                }
+                if (await _ctx.Empregados.AnyAsync(e => e.Matricula == matricula) ||
+                    await _ctx.Usuarios.AnyAsync(u => u.Matricula == matricula))
+                {
+                    erros.Add($"Linha {linha}: matrícula '{matricula}' já cadastrada.");
+                    continue;
+                }
+
+                // Demais campos
+                var nome = row.Cell(2).GetString().Trim();
+                var diret = row.Cell(3).GetString().Trim();
+                var super = row.Cell(4).GetString().Trim();
+                var cargo = row.Cell(5).GetString().Trim();
+
+                var ativo = row.Cell(6).GetString().Trim().ToLowerInvariant() switch
+                {
+                    "1" or "true" or "sim" => true,
+                    "0" or "false" or "não" or "nao" => false,
+                    _ => throw new FormatException($"Linha {linha}: valor inválido na coluna 'Ativo'.")
+                };
+
+                if (!decimal.TryParse(row.Cell(7).GetString().Trim().Replace('.', ','),
+                                      NumberStyles.Any, new CultureInfo("pt-BR"),
+                                      out var valorMax))
+                {
+                    erros.Add($"Linha {linha}: valor máximo inválido.");
+                    continue;
+                }
+
+                novosEmpregados.Add(new Empregado
+                {
+                    Matricula = matricula,
+                    Nome = nome,
+                    Diretoria = diret,
+                    Superintendencia = super,
+                    Cargo = cargo,
+                    Ativo = ativo,
+                    ValorMaximoMensal = valorMax
+                });
+            }
+
+            if (erros.Any()) return BadRequest(new { erros });
+            if (!novosEmpregados.Any()) return NoContent();
+
+            // ───── GRAVA NO BANCO ─────
+            await using var trx = await _ctx.Database.BeginTransactionAsync();
             try
             {
-                using var ms = new MemoryStream();
-                await arquivo.CopyToAsync(ms);
-                ms.Seek(0, SeekOrigin.Begin);
+                _ctx.Empregados.AddRange(novosEmpregados);
+                await _ctx.SaveChangesAsync();                    // gera IDs
 
-                using var workbook = new XLWorkbook(ms);
-                var ws = workbook.Worksheets.First();
-                var linhas = ws.RowsUsed().Skip(1);
-
-                var novosEmpregados = new List<Empregado>();
-                var novosUsuarios = new List<Usuario>();
-
-                foreach (var row in linhas)
+                // Cria usuários já com FK correta
+                var novosUsuarios = novosEmpregados.Select(e => new Usuario
                 {
-                    string matricula = row.Cell(1).GetString().Trim();
-                    string nome = row.Cell(2).GetString().Trim();
-                    string diretoria = row.Cell(3).GetString().Trim();
-                    string superint = row.Cell(4).GetString().Trim();
-                    string cargo = row.Cell(5).GetString().Trim();
-                    bool ativo = row.Cell(6).GetValue<bool>();
-                    decimal valorMax = row.Cell(7).GetValue<decimal>();
+                    EmpregadoId = e.Id,                           // ← FK resolvida aqui
+                    Matricula = e.Matricula,
+                    Nome = e.Nome,
+                    Email = $"{e.Matricula}@reembolsobas.com",
+                    SenhaHash = BCrypt.Net.BCrypt.HashPassword("Senha123!", 12),
+                    Perfil = "empregado"
+                }).ToList();
 
-                    // Ignora linhas em branco ou duplicadas
-                    if (string.IsNullOrEmpty(matricula))
-                        continue;
+                _ctx.Usuarios.AddRange(novosUsuarios);
+                await _ctx.SaveChangesAsync();
+                await trx.CommitAsync();
 
-                    bool existeEmp = await _ctx.Empregados.AnyAsync(e => e.Matricula == matricula);
-                    bool existeUsu = await _ctx.Usuarios.AnyAsync(u => u.Matricula == matricula);
-
-                    if (existeEmp || existeUsu)
-                        continue;
-
-                    var emp = new Empregado
-                    {
-                        Matricula = matricula,
-                        Nome = nome,
-                        Diretoria = diretoria,
-                        Superintendencia = superint,
-                        Cargo = cargo,
-                        Ativo = ativo,
-                        ValorMaximoMensal = valorMax
-                    };
-                    novosEmpregados.Add(emp);
-
-                    // Cria usuário padrão (senha “Senha123!”)
-                    string senhaPadrao = "Senha123!";
-                    string hashSenha = BCrypt.Net.BCrypt.HashPassword(senhaPadrao, workFactor: 12);
-
-                    var usu = new Usuario
-                    {
-                        Nome = nome,
-                        Email = $"{matricula}@reembolsoBas.com",
-                        SenhaHash = hashSenha,
-                        Perfil = "empregado",
-                        Matricula = matricula
-                    };
-                    novosUsuarios.Add(usu);
-                }
-
-                if (novosEmpregados.Count > 0)
+                return Ok(new
                 {
-                    using var transaction = await _ctx.Database.BeginTransactionAsync();
-
-                    // Adiciona os novos empregados e usuários em lote
-                    _ctx.Empregados.AddRange(novosEmpregados);
-                    await _ctx.SaveChangesAsync();
-
-                    // Para os usuários, garante que os empregados já tenham sido criados (para obter os Id's, se necessário)
-                    // Se houver dependência de Id, você pode atribuí-los aqui após a criação dos empregados.
-                    _ctx.Usuarios.AddRange(novosUsuarios);
-                    await _ctx.SaveChangesAsync();
-
-                    await transaction.CommitAsync();
-                }
-
-                return Ok(new { totalImportados = novosEmpregados.Count });
+                    totalImportados = novosEmpregados.Count,
+                    mensagem = "Importação concluída com sucesso."
+                });
+            }
+            catch (DbUpdateException dbEx)
+            {
+                await trx.RollbackAsync();
+                _logger.LogError(dbEx, "Falha de constraint no lote.");
+                return Conflict(dbEx.InnerException?.Message ?? dbEx.Message);
             }
             catch (Exception ex)
             {
-                _logger.LogError(ex, "Erro no upload de lista de empregados.");
+                await trx.RollbackAsync();
+                _logger.LogError(ex, "Erro inesperado no upload.");
                 return StatusCode(500, "Erro interno do servidor.");
             }
         }
+
     }
 }
