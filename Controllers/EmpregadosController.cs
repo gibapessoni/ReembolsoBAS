@@ -253,7 +253,7 @@ namespace ReembolsoBAS.Controllers
                     Nome = e.Nome,
                     Email = $"{e.Matricula}@reembolsobas.com",
                     SenhaHash = BCrypt.Net.BCrypt.HashPassword("Senha123!", 12),
-                    Perfil = e.Cargo               // <<< aqui
+                    Perfil = e.Cargo         
                 }).ToList();
 
                 _ctx.Usuarios.AddRange(novosUsuarios);

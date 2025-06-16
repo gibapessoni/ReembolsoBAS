@@ -16,10 +16,8 @@ namespace ReembolsoBAS.Services
             _uploadPath = Path.Combine(Directory.GetCurrentDirectory(), "Uploads");
         }
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        // 1) SALVAR
+        /* ───────────────────────────── 1) SALVAR ───────────────────────────── */
         // Retorna uma string “nome1;nome2;nome3”
-        // ─────────────────────────────────────────────────────────────────────────────
         public async Task<string> SaveFiles(IFormFileCollection files)
         {
             var fileNames = new List<string>();
@@ -38,13 +36,10 @@ namespace ReembolsoBAS.Services
                 fileNames.Add(fileName);
             }
 
-            return string.Join(";", fileNames);
+            return string.Join(';', fileNames);
         }
 
-        // ─────────────────────────────────────────────────────────────────────────────
-        // 2) EXCLUIR
-        // Recebe a mesma string retornada acima e apaga todos os arquivos listados.
-        // ─────────────────────────────────────────────────────────────────────────────
+        /* ───────────────────────────── 2) EXCLUIR ──────────────────────────── */
         public Task DeleteFile(string storedNames)
         {
             if (string.IsNullOrWhiteSpace(storedNames))
@@ -58,12 +53,34 @@ namespace ReembolsoBAS.Services
             {
                 var fullPath = Path.Combine(_uploadPath, name);
                 if (File.Exists(fullPath))
-                {
                     File.Delete(fullPath);
-                }
             }
 
-            return Task.CompletedTask;  
+            return Task.CompletedTask;
+        }
+
+        /* ───────────────────────────── 3) EXISTS ───────────────────────────── */
+        public bool Exists(string storedName)
+        {
+            if (string.IsNullOrWhiteSpace(storedName)) return false;
+            var full = Path.Combine(_uploadPath, storedName);
+            return File.Exists(full);
+        }
+
+        /* ───────────────────────────── 4) OPEN READ ────────────────────────── */
+        public Task<Stream?> OpenReadAsync(string storedName)
+        {
+            if (string.IsNullOrWhiteSpace(storedName))
+                return Task.FromResult<Stream?>(null);
+
+            var full = Path.Combine(_uploadPath, storedName);
+
+            if (!File.Exists(full))
+                return Task.FromResult<Stream?>(null);
+
+            // Abrir em modo somente-leitura compartilhado
+            Stream stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return Task.FromResult<Stream?>(stream);
         }
     }
 }

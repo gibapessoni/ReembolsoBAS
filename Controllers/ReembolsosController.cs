@@ -233,16 +233,26 @@ namespace ReembolsoBAS.Controllers
             return NoContent();
         }
 
-        // 3. RH: Listar Reembolsos Pendentes
-        [HttpGet("pendentes-rh")]
+        // 3. RH: Listar Reembolsos todos
+        [HttpGet("todos")]
         [Authorize(Roles = "rh,gerente_rh,admin")]
-        public async Task<IActionResult> PendentesRH()
+        public async Task<IActionResult> TodosReembolsos()
         {
             var lista = await _ctx.Reembolsos
-                                  .Where(r => r.Status == StatusReembolso.Pendente
-                                           || r.Status == StatusReembolso.DevolvidoRH)
+                                  .Include(r => r.Empregado)          
                                   .OrderBy(r => r.DataEnvio)
+                                  .Select(r => new ReembolsoDto(
+                                      r.Id,
+                                      r.NumeroRegistro,
+                                      r.Empregado.Nome,               
+                                      r.DataEnvio,
+                                      r.Periodo,
+                                      r.TipoSolicitacao,
+                                      r.Status,
+                                      r.ValorSolicitado,
+                                      r.ValorReembolsado))
                                   .ToListAsync();
+
             return Ok(lista);
         }
 
@@ -402,5 +412,51 @@ namespace ReembolsoBAS.Controllers
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         fileName);
         }
+        [HttpGet("{id:int}/documento")]
+        [HttpGet("{id:int}/documentos/{fileName}")]
+        [Authorize(Roles = "empregado,rh,gerente_rh,admin,diretor-presidente")]
+        public async Task<IActionResult> BaixarDocumento(int id, string? fileName = null)
+        {
+            // 1) localiza o reembolso
+            var reembolso = await _ctx.Reembolsos
+                                      .AsNoTracking()
+                                      .FirstOrDefaultAsync(r => r.Id == id);
+
+            if (reembolso == null)
+                return NotFound("Reembolso não encontrado.");
+
+            // 2) regra de autorização extra:
+            //    empregado só pode baixar o próprio
+            if (User.IsInRole("empregado") &&
+                reembolso.MatriculaEmpregado != User.Identity!.Name) // ou outro claim de matrícula
+                return Forbid();
+
+            if (string.IsNullOrWhiteSpace(reembolso.CaminhoDocumentos))
+                return NotFound("Nenhum documento associado.");
+
+            var nomes = reembolso.CaminhoDocumentos
+                                 .Split(';', StringSplitOptions.RemoveEmptyEntries)
+                                 .Select(n => n.Trim())
+                                 .ToArray();
+
+            // se rota sem {fileName}, devolve o 1º arquivo
+            var nomePedido = fileName ?? nomes.First();
+
+            var stream = await _fileStorage.OpenReadAsync(nomePedido);
+            if (stream == null)
+                return NotFound("Arquivo não encontrado no servidor.");
+
+            // content-type simples por extensão
+            var contentType = nomePedido.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf" :
+                              nomePedido.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
+                              nomePedido.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
+                              nomePedido.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" :
+                              "application/octet-stream";
+
+            return File(stream, contentType, nomePedido,
+                        enableRangeProcessing: true);           
+        }
+
+
     }
 }
