@@ -11,14 +11,16 @@ namespace ReembolsoBAS.Models
         [JsonIgnore] public Reembolso Reembolso { get; set; } = null!;
 
         public string Beneficiario { get; set; } = string.Empty;
-
         public GrauParentescoEnum GrauParentesco { get; set; }
-
-        public DateTime DataPagamento { get; set; }
+        public DateTime DataNascimento { get; set; }
 
         [Column(TypeName = "decimal(18,2)")]
         public decimal ValorPago { get; set; }
+
         [Column(TypeName = "decimal(18,2)")]
         public decimal ValorRestituir { get; set; }
+
+        public TipoSolicitacaoEnum TipoSolicitacao { get; set; }
     }
+
 }
