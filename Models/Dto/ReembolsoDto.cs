@@ -5,8 +5,8 @@ namespace ReembolsoBAS.Models.Dto
     public record ReembolsoDto(
     int Id,
     string NumeroRegistro,
-    string Solicitante,          
-    DateTime DataEnvio,
+    string Solicitante,
+    DateTime DataNascimento,
     DateTime Periodo,
     TipoSolicitacaoEnum TipoSolicitacao,
     string Status,

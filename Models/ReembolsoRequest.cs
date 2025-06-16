@@ -16,20 +16,16 @@ public class ReembolsoRequest
     [Required, MinLength(1)]
     public DateTime[] DataNascimento { get; set; } = Array.Empty<DateTime>();
 
-    /* ---------- arquivos ---------- */
     public IFormFileCollection? Documentos { get; set; }
     public bool RemoverDocumento { get; set; }
 
-    /* ---------- arrays pareados ---------- */
     [Required, MinLength(1)] public string[] Beneficiario { get; set; } = Array.Empty<string>();
     [Required, MinLength(1)] public GrauParentescoEnum[] GrauParentesco { get; set; } = Array.Empty<GrauParentescoEnum>();
-    [Required, MinLength(1)] public DateTime[] DataPagamento { get; set; } = Array.Empty<DateTime>();
     [Required, MinLength(1)] public decimal[] ValorPago { get; set; } = Array.Empty<decimal>();
 
-    /* Tipo *principal* (mantido para compat.) */
     [Required] public TipoSolicitacaoEnum TipoSolicitacao { get; set; }
 
-    /* NOVO – um tipo para cada lançamento */
     [Required, MinLength(1)]
     public TipoSolicitacaoEnum[] TipoSolicitacaoLancamento { get; set; } = Array.Empty<TipoSolicitacaoEnum>();
 }
+

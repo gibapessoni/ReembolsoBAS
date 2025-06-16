@@ -70,40 +70,32 @@ namespace ReembolsoBAS.Controllers
         [Authorize(Roles = "empregado,admin,diretor-presidente")]
         public async Task<IActionResult> SolicitarReembolso([FromForm] ReembolsoRequest req)
         {
-            /* 1) Período YYYY-MM -------------------------------------------------- */
+            /* 1) Período AAAA-MM */
             if (!DateTime.TryParseExact(req.Periodo + "-01", "yyyy-MM-dd",
                                         CultureInfo.InvariantCulture,
-                                        DateTimeStyles.None,
-                                        out var periodoDt))
+                                        DateTimeStyles.None, out var periodoDt))
                 return BadRequest("Período inválido. Use YYYY-MM.");
 
-            /* 2) Prazo (até dia 5 do mês seguinte) -------------------------------- */
-            var prazo = new DateTime(periodoDt.Year, periodoDt.Month, 1)
-                          .AddMonths(1).AddDays(4);   // dia 5 inclusive
+            /* 2) Prazo (dia 5 do mês seguinte) */
+            var prazo = new DateTime(periodoDt.Year, periodoDt.Month, 1).AddMonths(1).AddDays(4);
             if (DateTime.Today > prazo)
                 return BadRequest("Período fora do prazo para solicitação.");
 
-            /* 3) Empregado -------------------------------------------------------- */
-            var emp = await _ctx.Empregados
-                                .FirstOrDefaultAsync(e => e.Matricula == req.Matricula);
-            if (emp is null)
-                return BadRequest("Matrícula não encontrada.");
+            /* 3) Empregado */
+            var emp = await _ctx.Empregados.FirstOrDefaultAsync(e => e.Matricula == req.Matricula);
+            if (emp is null) return BadRequest("Matrícula não encontrada.");
 
-            /* 4) Verificar tamanhos iguais nos arrays ----------------------------- */
             int n = req.Beneficiario.Length;
             if (new[]
                 {
             req.GrauParentesco.Length,
-            req.DataPagamento.Length,
+            req.DataNascimento.Length,
             req.ValorPago.Length,
-            req.DataNascimento.Length,          // ← incluído
             req.TipoSolicitacaoLancamento.Length
         }.Any(len => len != n))
-            {
                 return BadRequest("Todos os campos de lançamento devem ter o mesmo número de itens.");
-            }
 
-            /* 5) Construir lançamentos ------------------------------------------- */
+            /* 4) Montar lançamentos */
             var lancamentos = new List<ReembolsoLancamento>(n);
             decimal totalSolicitado = 0m;
 
@@ -116,23 +108,22 @@ namespace ReembolsoBAS.Controllers
                 {
                     Beneficiario = req.Beneficiario[i],
                     GrauParentesco = req.GrauParentesco[i],
-                    DataNascimento = req.DataNascimento[i],          // ← novo campo
-                    DataPagamento = req.DataPagamento[i],
+                    DataNascimento = req.DataNascimento[i],
                     ValorPago = valorPago,
                     ValorRestituir = valorPago * 0.5m,
                     TipoSolicitacao = req.TipoSolicitacaoLancamento[i]
                 });
             }
 
-            /* 6) Checar documentos ------------------------------------------------ */
+            /* 5) Documentos obrigatórios */
             if (req.Documentos is null || req.Documentos.Count == 0)
                 return BadRequest("É obrigatório anexar pelo menos um documento.");
 
-            /* 7) Criar reembolso -------------------------------------------------- */
+            /* 6) Criar reembolso */
             var reembolso = new Reembolso
             {
                 MatriculaEmpregado = req.Matricula,
-                TipoSolicitacao = req.TipoSolicitacao,      // campo “principal”
+                TipoSolicitacao = req.TipoSolicitacao,
                 Periodo = periodoDt,
                 ValorSolicitado = totalSolicitado,
                 Status = StatusReembolso.Pendente,
@@ -144,12 +135,8 @@ namespace ReembolsoBAS.Controllers
             _ctx.Reembolsos.Add(reembolso);
             await _ctx.SaveChangesAsync();
 
-            /* 8) Retorno ---------------------------------------------------------- */
-            return CreatedAtAction(nameof(GetMeus),
-                                   new { id = reembolso.Id },
-                                   reembolso);
+            return CreatedAtAction(nameof(GetMeus), new { id = reembolso.Id }, reembolso);
         }
-
 
         // 2.1 EMPREGADO: Editar uma Solicitação de Reembolso
         [HttpPut("{id:int}")]
@@ -237,19 +224,25 @@ namespace ReembolsoBAS.Controllers
             return NoContent();
         }
 
-        // 3. RH: Listar Reembolsos todos
+        // 3. RH: Listar Reembolsos
         [HttpGet("todos")]
         [Authorize(Roles = "rh,gerente_rh,admin")]
         public async Task<IActionResult> TodosReembolsos()
         {
             var lista = await _ctx.Reembolsos
-                                  .Include(r => r.Empregado)          
-                                  .OrderBy(r => r.DataEnvio)
+                                  .Include(r => r.Empregado)
+                                  .Include(r => r.Lancamentos)            
+                                  .OrderBy(r => r.DataEnvio)               
                                   .Select(r => new ReembolsoDto(
                                       r.Id,
                                       r.NumeroRegistro,
-                                      r.Empregado.Nome,               
-                                      r.DataEnvio,
+                                      r.Empregado.Nome,
+
+                                      r.Lancamentos
+                                       .OrderBy(l => l.Id)                 
+                                       .Select(l => l.DataNascimento)
+                                       .FirstOrDefault(),                   
+
                                       r.Periodo,
                                       r.TipoSolicitacao,
                                       r.Status,
@@ -432,7 +425,7 @@ namespace ReembolsoBAS.Controllers
             // 2) regra de autorização extra:
             //    empregado só pode baixar o próprio
             if (User.IsInRole("empregado") &&
-                reembolso.MatriculaEmpregado != User.Identity!.Name) // ou outro claim de matrícula
+                reembolso.MatriculaEmpregado != User.Identity!.Name) 
                 return Forbid();
 
             if (string.IsNullOrWhiteSpace(reembolso.CaminhoDocumentos))
@@ -450,7 +443,6 @@ namespace ReembolsoBAS.Controllers
             if (stream == null)
                 return NotFound("Arquivo não encontrado no servidor.");
 
-            // content-type simples por extensão
             var contentType = nomePedido.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf" :
                               nomePedido.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
                               nomePedido.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
