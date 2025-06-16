@@ -65,85 +65,89 @@ namespace ReembolsoBAS.Controllers
             return Ok(lista);
         }
 
-        // 2. EMPREGADO: Nova Solicitação de Reembolso
+        // POST api/Reembolsos/solicitar
         [HttpPost("solicitar")]
         [Authorize(Roles = "empregado,admin,diretor-presidente")]
         public async Task<IActionResult> SolicitarReembolso([FromForm] ReembolsoRequest req)
         {
-            // 1) Validação do formato "YYYY-MM"
-            if (string.IsNullOrWhiteSpace(req.Periodo)
-                || req.Periodo.Length != 7
-                || !DateTime.TryParseExact(
-                     req.Periodo + "-01",
-                     "yyyy-MM-dd",
-                     CultureInfo.InvariantCulture,
-                     DateTimeStyles.None,
-                     out var periodoDt))
-            {
-                return BadRequest("Período inválido. Envie no formato YYYY-MM.");
-            }
+            /* 1) Período YYYY-MM -------------------------------------------------- */
+            if (!DateTime.TryParseExact(req.Periodo + "-01", "yyyy-MM-dd",
+                                        CultureInfo.InvariantCulture,
+                                        DateTimeStyles.None,
+                                        out var periodoDt))
+                return BadRequest("Período inválido. Use YYYY-MM.");
 
-            // 2) Valida prazo (até dia 5 do mês seguinte)
-            var ultimoDiaMes = new DateTime(periodoDt.Year, periodoDt.Month, 1)
-                                 .AddMonths(1)
-                                 .AddDays(-1);
-            if (DateTime.Today > ultimoDiaMes.AddDays(5))
+            /* 2) Prazo (até dia 5 do mês seguinte) -------------------------------- */
+            var prazo = new DateTime(periodoDt.Year, periodoDt.Month, 1)
+                          .AddMonths(1).AddDays(4);   // dia 5 inclusive
+            if (DateTime.Today > prazo)
                 return BadRequest("Período fora do prazo para solicitação.");
 
-            // 3) Carrega o empregado
+            /* 3) Empregado -------------------------------------------------------- */
             var emp = await _ctx.Empregados
                                 .FirstOrDefaultAsync(e => e.Matricula == req.Matricula);
-            if (emp == null)
+            if (emp is null)
                 return BadRequest("Matrícula não encontrada.");
 
-            // 4) Validação dos arrays de lançamentos
+            /* 4) Verificar tamanhos iguais nos arrays ----------------------------- */
             int n = req.Beneficiario.Length;
-            if (n == 0
-             || req.GrauParentesco.Length != n
-             || req.DataPagamento.Length != n
-             || req.ValorPago.Length != n)
+            if (new[]
+                {
+            req.GrauParentesco.Length,
+            req.DataPagamento.Length,
+            req.ValorPago.Length,
+            req.DataNascimento.Length,          // ← incluído
+            req.TipoSolicitacaoLancamento.Length
+        }.Any(len => len != n))
             {
                 return BadRequest("Todos os campos de lançamento devem ter o mesmo número de itens.");
             }
 
-            // 5) Monta a lista de lançamentos
+            /* 5) Construir lançamentos ------------------------------------------- */
             var lancamentos = new List<ReembolsoLancamento>(n);
+            decimal totalSolicitado = 0m;
+
             for (int i = 0; i < n; i++)
             {
+                var valorPago = req.ValorPago[i];
+                totalSolicitado += valorPago;
+
                 lancamentos.Add(new ReembolsoLancamento
                 {
                     Beneficiario = req.Beneficiario[i],
                     GrauParentesco = req.GrauParentesco[i],
+                    DataNascimento = req.DataNascimento[i],          // ← novo campo
                     DataPagamento = req.DataPagamento[i],
-                    ValorPago = req.ValorPago[i],
-                    ValorRestituir = req.ValorPago[i] * 0.5m
+                    ValorPago = valorPago,
+                    ValorRestituir = valorPago * 0.5m,
+                    TipoSolicitacao = req.TipoSolicitacaoLancamento[i]
                 });
             }
 
-            // 6) Cria o reembolso **em PENDENTE**
+            /* 6) Checar documentos ------------------------------------------------ */
+            if (req.Documentos is null || req.Documentos.Count == 0)
+                return BadRequest("É obrigatório anexar pelo menos um documento.");
+
+            /* 7) Criar reembolso -------------------------------------------------- */
             var reembolso = new Reembolso
             {
                 MatriculaEmpregado = req.Matricula,
-                TipoSolicitacao = req.TipoSolicitacao,
+                TipoSolicitacao = req.TipoSolicitacao,      // campo “principal”
                 Periodo = periodoDt,
-                ValorSolicitado = req.ValorSolicitado,
+                ValorSolicitado = totalSolicitado,
                 Status = StatusReembolso.Pendente,
                 CaminhoDocumentos = await _fileStorage.SaveFiles(req.Documentos),
                 Empregado = emp,
                 Lancamentos = lancamentos
             };
 
-            if (req.Documentos == null || req.Documentos.Count == 0)
-                return BadRequest("É obrigatório enviar ao menos um documento.");
-
             _ctx.Reembolsos.Add(reembolso);
             await _ctx.SaveChangesAsync();
-            
-            return CreatedAtAction(
-                nameof(GetMeus),
-                new { },
-                reembolso
-            );
+
+            /* 8) Retorno ---------------------------------------------------------- */
+            return CreatedAtAction(nameof(GetMeus),
+                                   new { id = reembolso.Id },
+                                   reembolso);
         }
 
 
