@@ -72,17 +72,23 @@ A aplicação irá escutar em https://localhost:7143.
 
 Crie um usuário no banco (Exemplo SQL):
 
+/* 1. Cria o empregado e guarda o Id gerado */
+DECLARE @EmpregadoId INT;
+
 INSERT INTO Empregados (Matricula, Nome, Diretoria, Superintendencia, Cargo, Ativo, ValorMaximoMensal)
 VALUES ('ADM001', 'Administrador', 'TI', 'TI', 'Admin', 1, 5000.00);
 
-INSERT INTO Usuarios (Nome, Email, SenhaHash, Perfil, Matricula)
-VALUES (
-  'Administrador',
-  'admin@empresa.com',
-  '<hash_bcrypt_da_senha>',
-  'admin',
-  'ADM001'
-);
+SET @EmpregadoId = SCOPE_IDENTITY();   -- Id recém-gerado
+
+/* 2. Cria o usuário apontando para esse empregado */
+INSERT INTO Usuarios (EmpregadoId, Matricula, Nome, Email, SenhaHash, Perfil)
+VALUES (@EmpregadoId,
+        'ADM001',
+        'Administrador',
+        'admin@empresa.com',
+        '$2a$12$TYMY0OpUBq6z45N95IdWveetu..48P040dUKHGBPCK3sA6JmoleGe', -- Senha123!
+        'admin');
+
 
 Faça login para obter o token:
 

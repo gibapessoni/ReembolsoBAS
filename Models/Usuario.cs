@@ -15,7 +15,6 @@ namespace ReembolsoBAS.Models
         [ForeignKey(nameof(EmpregadoId))]
         public Empregado Empregado { get; set; } = null!;
 
-        // -- mantém também Matrícula para lookup legível
         [Required, StringLength(50)]
         public string Matricula { get; set; } = string.Empty;
 

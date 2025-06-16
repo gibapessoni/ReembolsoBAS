@@ -15,7 +15,5 @@ namespace ReembolsoBAS.Models
         [Column(TypeName = "decimal(18,2)")]
         public decimal ValorMaximoMensal { get; set; }
 
-        // (Opcional) navegação inversa se você quiser
-        // public Usuario? Usuario { get; set; }
     }
 }
