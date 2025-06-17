@@ -14,6 +14,7 @@ using System.Linq;
 using System.Security.Claims;
 using System.Text.Json;
 using System.Threading.Tasks;
+using Microsoft.Extensions.Configuration;
 
 namespace ReembolsoBAS.Controllers
 {
@@ -35,9 +36,9 @@ namespace ReembolsoBAS.Controllers
             _service = service;
         }
 
-        // 1. EMPREGADO: Meus Reembolsos (ou um específico)
+        // 1. Colaborador: Meus Reembolsos (ou um específico)
         [HttpGet("meus")]
-        [Authorize(Roles = "empregado,admin")]
+        [Authorize(Roles = "colaborador,admin")]
         public async Task<IActionResult> GetMeus([FromQuery] int? id = null)
         {
             var matricula = User.FindFirstValue(ClaimTypes.NameIdentifier);
@@ -65,140 +66,120 @@ namespace ReembolsoBAS.Controllers
             return Ok(lista);
         }
 
-        // POST api/Reembolsos/solicitar
         [HttpPost("solicitar")]
-        [Authorize(Roles = "empregado,admin,diretor-presidente")]
+        [Authorize(Roles = "colaborador,admin,diretor-presidente")]
         public async Task<IActionResult> SolicitarReembolso([FromForm] ReembolsoRequest req)
         {
-            /* 1) Período AAAA-MM */
-            if (!DateTime.TryParseExact(req.Periodo + "-01", "yyyy-MM-dd",
+            /* 1) Período YYYY-MM → DateTime */
+            if (!DateTime.TryParseExact($"{req.Periodo}-01", "yyyy-MM-dd",
                                         CultureInfo.InvariantCulture,
                                         DateTimeStyles.None, out var periodoDt))
-                return BadRequest("Período inválido. Use YYYY-MM.");
+                return BadRequest("Período inválido (use YYYY-MM).");
 
-            /* 2) Prazo (dia 5 do mês seguinte) */
-            var prazo = new DateTime(periodoDt.Year, periodoDt.Month, 1).AddMonths(1).AddDays(4);
-            if (DateTime.Today > prazo)
-                return BadRequest("Período fora do prazo para solicitação.");
+            /* 2) Prazo (dia 5 mês seguinte) */
+            if (DateTime.Today > new DateTime(periodoDt.Year, periodoDt.Month, 1).AddMonths(1).AddDays(4))
+                return BadRequest("Fora do prazo para solicitação.");
 
-            /* 3) Empregado */
+            /* 3) colaborador */
             var emp = await _ctx.Empregados.FirstOrDefaultAsync(e => e.Matricula == req.Matricula);
             if (emp is null) return BadRequest("Matrícula não encontrada.");
 
+            /* 4) Tamanho dos arrays */
             int n = req.Beneficiario.Length;
-            if (new[]
-                {
-            req.GrauParentesco.Length,
-            req.DataNascimento.Length,
-            req.ValorPago.Length,
-            req.TipoSolicitacaoLancamento.Length
-        }.Any(len => len != n))
-                return BadRequest("Todos os campos de lançamento devem ter o mesmo número de itens.");
+            if (new[] { req.GrauParentesco.Length, req.DataNascimento.Length,
+                req.ValorPago.Length, req.TipoSolicitacaoLancamento.Length }
+                .Any(len => len != n))
+                return BadRequest("Todos os arrays de lançamento devem ter o mesmo tamanho.");
 
-            /* 4) Montar lançamentos */
-            var lancamentos = new List<ReembolsoLancamento>(n);
-            decimal totalSolicitado = 0m;
+            /* 5) Documento obrigatório */
+            if (req.Documentos is null || req.Documentos.Count == 0)
+                return BadRequest("É obrigatório anexar ao menos um documento.");
+
+            /* 6) Salva arquivos uma única vez  */
+            var caminhoDocs = await _fileStorage.SaveFiles(req.Documentos);
+
+            /* 7) Monta lançamentos */
+            decimal total = 0m;
+            var lancs = new List<ReembolsoLancamento>(n);
 
             for (int i = 0; i < n; i++)
             {
-                var valorPago = req.ValorPago[i];
-                totalSolicitado += valorPago;
+                decimal valor = req.ValorPago[i];
+                total += valor;
 
-                lancamentos.Add(new ReembolsoLancamento
+                lancs.Add(new ReembolsoLancamento
                 {
                     Beneficiario = req.Beneficiario[i],
                     GrauParentesco = req.GrauParentesco[i],
                     DataNascimento = req.DataNascimento[i],
-                    ValorPago = valorPago,
-                    ValorRestituir = valorPago * 0.5m,
-                    TipoSolicitacao = req.TipoSolicitacaoLancamento[i]
+                    ValorPago = valor,
+                    ValorRestituir = valor * 0.5m,
+                    TipoSolicitacao = req.TipoSolicitacaoLancamento[i],
+                    CaminhoDocumentos = caminhoDocs           
                 });
             }
 
-            /* 5) Documentos obrigatórios */
-            if (req.Documentos is null || req.Documentos.Count == 0)
-                return BadRequest("É obrigatório anexar pelo menos um documento.");
-
-            /* 6) Criar reembolso */
+            /* 8) Cria o Reembolso */
             var reembolso = new Reembolso
             {
-                MatriculaEmpregado = req.Matricula,
-                TipoSolicitacao = req.TipoSolicitacao,
+                MatriculaEmpregado = emp.Matricula,
                 Periodo = periodoDt,
-                ValorSolicitado = totalSolicitado,
+                ValorSolicitado = total,
                 Status = StatusReembolso.Pendente,
-                CaminhoDocumentos = await _fileStorage.SaveFiles(req.Documentos),
                 Empregado = emp,
-                Lancamentos = lancamentos
+                Lancamentos = lancs
             };
 
             _ctx.Reembolsos.Add(reembolso);
             await _ctx.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetMeus), new { id = reembolso.Id }, reembolso);
+            return CreatedAtAction(nameof(GetMeus),
+                                   new { id = reembolso.Id },
+                                   reembolso);
         }
 
-        // 2.1 EMPREGADO: Editar uma Solicitação de Reembolso
+        // 2.1 colaborador: Editar uma Solicitação de Reembolso        
         [HttpPut("{id:int}")]
-        [Authorize(Roles = "empregado,admin")]
-        public async Task<IActionResult> EditarReembolso(int id, [FromForm] ReembolsoRequest req)
+        [Authorize(Roles = "colaborador,admin")]
+        public async Task<IActionResult> EditarReembolso(
+                int id,
+                [FromForm] ReembolsoRequest req)
         {
             var reembolso = await _ctx.Reembolsos
                                       .Include(r => r.Empregado)
                                       .FirstOrDefaultAsync(r => r.Id == id);
-            if (reembolso == null) return NotFound();
 
+            if (reembolso is null) return NotFound();
             var matriculaLogado = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (reembolso.MatriculaEmpregado != matriculaLogado && !User.IsInRole("admin"))
-                return Forbid();
+            if (reembolso.MatriculaEmpregado != matriculaLogado &&
+                !User.IsInRole("admin")) return Forbid();
 
-            // converte o período:
-            if (string.IsNullOrWhiteSpace(req.Periodo)
-                || req.Periodo.Length != 7
-                || !DateTime.TryParseExact(
-                     req.Periodo + "-01",
-                     "yyyy-MM-dd",
-                     CultureInfo.InvariantCulture,
-                     DateTimeStyles.None,
-                     out var periodoDt))
-            {
-                return BadRequest("Período inválido. Envie no formato YYYY-MM.");
-            }
+            if (!DateTime.TryParseExact($"{req.Periodo}-01",
+                                        "yyyy-MM-dd",
+                                        CultureInfo.InvariantCulture,
+                                        DateTimeStyles.None,
+                                        out var periodoDt))
+                return BadRequest("Período inválido (use YYYY-MM).");
 
-            // valida prazo
-            var ultimoDiaMes = new DateTime(periodoDt.Year, periodoDt.Month, 1)
-                                 .AddMonths(1)
-                                 .AddDays(-1);
-            if (DateTime.Today > ultimoDiaMes.AddDays(5) && !User.IsInRole("admin"))
+            var prazo = new DateTime(periodoDt.Year, periodoDt.Month, 1)
+                           .AddMonths(1)
+                           .AddDays(4);          
+
+            if (DateTime.Today > prazo && !User.IsInRole("admin"))
                 return BadRequest("Período fora do prazo para alteração.");
 
-            // aplica mudanças
             reembolso.Periodo = periodoDt;
             reembolso.ValorSolicitado = req.ValorSolicitado;
-            //verificar se usuário solicitou remover documento existente
-            if (req.RemoverDocumento)
-            {
-                if (!string.IsNullOrWhiteSpace(reembolso.CaminhoDocumentos))
-                    await _fileStorage.DeleteFile(reembolso.CaminhoDocumentos);
-
-                reembolso.CaminhoDocumentos = string.Empty;   
-            }
-            else if (req.Documentos?.Count > 0)
-            {
-                if (!string.IsNullOrWhiteSpace(reembolso.CaminhoDocumentos))
-                    await _fileStorage.DeleteFile(reembolso.CaminhoDocumentos);
-
-                reembolso.CaminhoDocumentos = await _fileStorage.SaveFiles(req.Documentos);
-            }
 
             _ctx.Entry(reembolso).State = EntityState.Modified;
             await _ctx.SaveChangesAsync();
+
             return Ok(reembolso);
         }
 
-        // 2.2 EMPREGADO: Excluir uma Solicitação de Reembolso
+        // 2.2 colaborador: Excluir uma Solicitação de Reembolso
         [HttpDelete("{id:int}")]
-        [Authorize(Roles = "empregado,admin,diretor-presidente")]
+        [Authorize(Roles = "colaborador,admin,diretor-presidente")]
         public async Task<IActionResult> ExcluirReembolso(int id)
         {
             var reembolso = await _ctx.Reembolsos
@@ -223,28 +204,34 @@ namespace ReembolsoBAS.Controllers
             await _ctx.SaveChangesAsync();
             return NoContent();
         }
-
-        // 3. RH: Listar Reembolsos
+        // GET: api/Reembolsos/todos
         [HttpGet("todos")]
         [Authorize(Roles = "rh,gerente_rh,admin")]
         public async Task<IActionResult> TodosReembolsos()
         {
             var lista = await _ctx.Reembolsos
                                   .Include(r => r.Empregado)
-                                  .Include(r => r.Lancamentos)            
-                                  .OrderBy(r => r.DataEnvio)               
+                                  .Include(r => r.Lancamentos)
+                                  .OrderBy(r => r.DataEnvio)
                                   .Select(r => new ReembolsoDto(
                                       r.Id,
                                       r.NumeroRegistro,
                                       r.Empregado.Nome,
 
+                                      // Data de nascimento representativa (1º lançamento)
                                       r.Lancamentos
-                                       .OrderBy(l => l.Id)                 
+                                       .OrderBy(l => l.Id)
                                        .Select(l => l.DataNascimento)
-                                       .FirstOrDefault(),                   
+                                       .FirstOrDefault(),
 
                                       r.Periodo,
-                                      r.TipoSolicitacao,
+
+                                      // Tipo de solicitação do 1º lançamento
+                                      r.Lancamentos
+                                       .OrderBy(l => l.Id)
+                                       .Select(l => l.TipoSolicitacao)
+                                       .FirstOrDefault(),
+
                                       r.Status,
                                       r.ValorSolicitado,
                                       r.ValorReembolsado))
@@ -255,7 +242,7 @@ namespace ReembolsoBAS.Controllers
 
         // 4. RH: Validar um Reembolso (marca como “ValidadoRH”)
         [HttpPost("validar/{id:int}")]
-        [Authorize(Roles = "rh,gerente_rh,admin,diretor-presidente")]
+        [Authorize(Roles = "rh,gerente_rh,admin,Diretor-Presidente")]
         public async Task<IActionResult> Validar(int id)
         {
             await _service.ValidarReembolso(id);
@@ -264,7 +251,7 @@ namespace ReembolsoBAS.Controllers
 
         // 5. Gerente RH: Aprovar Reembolso individualmente
         [HttpPost("aprovar/{id:int}")]
-        [Authorize(Roles = "gerente_rh,admin")]
+        [Authorize(Roles = "gerente_rh,admin,Diretor-Presidente")]
         public async Task<IActionResult> Aprovar(int id)
         {
             await _service.AprovarReembolso(id);
@@ -273,7 +260,7 @@ namespace ReembolsoBAS.Controllers
 
         // 6. RH ou Gerente RH: Reprovar Reembolso
         [HttpPost("reprovar/{id:int}")]
-        [Authorize(Roles = "rh,gerente_rh,admin")]
+        [Authorize(Roles = "rh,gerente_rh,admin, Diretor-Presidente")]
         public async Task<IActionResult> Reprovar(int id, [FromBody] string motivo)
         {
             await _service.ReprovarReembolso(id, motivo);
@@ -282,7 +269,7 @@ namespace ReembolsoBAS.Controllers
 
         // 7. Gerente RH: Devolver para Correção
         [HttpPost("devolver/{id:int}")]
-        [Authorize(Roles = "gerente_rh,admin")]
+        [Authorize(Roles = "gerente_rh,admin,Diretor-Presidente ")]
         public async Task<IActionResult> Devolver(int id, [FromBody] string motivo)
         {
             await _service.DevolverParaCorrecao(id, motivo);
@@ -409,48 +396,42 @@ namespace ReembolsoBAS.Controllers
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         fileName);
         }
-        [HttpGet("{id:int}/documento")]
-        [HttpGet("{id:int}/documentos/{fileName}")]
-        [Authorize(Roles = "empregado,rh,gerente_rh,admin,diretor-presidente")]
-        public async Task<IActionResult> BaixarDocumento(int id, string? fileName = null)
+        // GET api/Reembolsos/lancamento/123/documento
+        [HttpGet("lancamento/{lancId:int}/documento")]
+        [Authorize(Roles = "colaborador,rh,gerente_rh,admin,diretor-presidente")]
+        public async Task<IActionResult> BaixarDocumento(int lancId, string? fileName = null)
         {
-            // 1) localiza o reembolso
-            var reembolso = await _ctx.Reembolsos
-                                      .AsNoTracking()
-                                      .FirstOrDefaultAsync(r => r.Id == id);
+            var lanc = await _ctx.ReembolsoLancamentos
+                                 .Include(l => l.Reembolso)
+                                 .AsNoTracking()
+                                 .FirstOrDefaultAsync(l => l.Id == lancId);
 
-            if (reembolso == null)
-                return NotFound("Reembolso não encontrado.");
+            if (lanc == null) return NotFound("Lançamento não encontrado.");
 
-            // 2) regra de autorização extra:
-            //    empregado só pode baixar o próprio
-            if (User.IsInRole("empregado") &&
-                reembolso.MatriculaEmpregado != User.Identity!.Name) 
+            // colaborador só baixa o próprio
+            if (User.IsInRole("colaborador") &&
+                lanc.Reembolso.MatriculaEmpregado != User.Identity!.Name)
                 return Forbid();
 
-            if (string.IsNullOrWhiteSpace(reembolso.CaminhoDocumentos))
+            if (string.IsNullOrWhiteSpace(lanc.CaminhoDocumentos))
                 return NotFound("Nenhum documento associado.");
 
-            var nomes = reembolso.CaminhoDocumentos
-                                 .Split(';', StringSplitOptions.RemoveEmptyEntries)
-                                 .Select(n => n.Trim())
-                                 .ToArray();
+            var nomes = lanc.CaminhoDocumentos
+                            .Split(';', StringSplitOptions.RemoveEmptyEntries)
+                            .Select(n => n.Trim())
+                            .ToArray();
 
-            // se rota sem {fileName}, devolve o 1º arquivo
             var nomePedido = fileName ?? nomes.First();
-
             var stream = await _fileStorage.OpenReadAsync(nomePedido);
-            if (stream == null)
-                return NotFound("Arquivo não encontrado no servidor.");
+            if (stream == null) return NotFound("Arquivo não encontrado.");
 
             var contentType = nomePedido.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf" :
+                              nomePedido.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" :
                               nomePedido.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
                               nomePedido.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
-                              nomePedido.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" :
                               "application/octet-stream";
 
-            return File(stream, contentType, nomePedido,
-                        enableRangeProcessing: true);           
+            return File(stream, contentType, nomePedido, enableRangeProcessing: true);
         }
 
 

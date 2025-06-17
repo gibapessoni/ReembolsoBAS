@@ -6,6 +6,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using ReembolsoBAS.Data;
+using ReembolsoBAS.Helpers;
 using ReembolsoBAS.Models;
 using System;
 using System.Collections.Generic;
@@ -22,16 +23,20 @@ namespace ReembolsoBAS.Controllers
     {
         private readonly AppDbContext _ctx;
         private readonly ILogger<EmpregadosController> _logger;
+        private readonly IConfiguration _cfg;
 
-        public EmpregadosController(AppDbContext ctx, ILogger<EmpregadosController> logger)
+        public EmpregadosController(AppDbContext ctx,
+                                    ILogger<EmpregadosController> logger,
+                                    IConfiguration cfg)
         {
             _ctx = ctx;
             _logger = logger;
+            _cfg = cfg;
         }
 
         // 1. Retorna todos os empregados (somente RH e Admin)
         [HttpGet]
-        [Authorize(Roles = "rh,admin,empregado")]
+        [Authorize(Roles = "rh,admin,colaborador")]
         public async Task<IActionResult> GetAll()
         {
             var lista = await _ctx.Empregados
@@ -43,56 +48,50 @@ namespace ReembolsoBAS.Controllers
         // 2. Cria um novo empregado (somente RH ou Admin)
         [HttpPost]
         [Authorize(Roles = "rh,admin")]
-        public async Task<IActionResult> Create([FromBody] Empregado emp)
+        public async Task<IActionResult> Create([FromBody] EmpregadoCreateDto dto)
         {
-            if (!ModelState.IsValid)
-                return BadRequest(ModelState);
+            if (!ModelState.IsValid) return BadRequest(ModelState);
 
-            try
+            if (await _ctx.Empregados.AnyAsync(e => e.Matricula == dto.Matricula))
+                return Conflict($"Já existe um empregado com matrícula '{dto.Matricula}'.");
+
+            var emp = new Empregado
             {
-                // 2.1) Verifica se já existe outro Empregado com essa matrícula
-                if (await _ctx.Empregados.AnyAsync(e => e.Matricula == emp.Matricula))
-                    return Conflict($"Já existe um empregado com matrícula '{emp.Matricula}'.");
+                Matricula = dto.Matricula,
+                Nome = dto.Nome,
+                Diretoria = dto.Diretoria,
+                Superintendencia = dto.Superintendencia,
+                Cargo = dto.Cargo,
+                Ativo = dto.Ativo,
+                ValorMaximoMensal = BeneficioHelper.CalcularLimite(dto.Cargo, _cfg)
+            };
 
-                using var transaction = await _ctx.Database.BeginTransactionAsync();
+            await using var tx = await _ctx.Database.BeginTransactionAsync();
 
-                // 2.2) Cria o Empregado primeiro
-                _ctx.Empregados.Add(emp);
-                await _ctx.SaveChangesAsync();  // emp.Id é populado aqui
+            _ctx.Empregados.Add(emp);
+            await _ctx.SaveChangesAsync();        
 
-                // 2.3) Gera hash de senha padrão
-                var senhaPadrao = "Senha123!";
-                var hash = BCrypt.Net.BCrypt.HashPassword(senhaPadrao, workFactor: 12);
+            var hash = BCrypt.Net.BCrypt.HashPassword("Senha123!", 12);
 
-                // 2.4) Cria o Usuário associado ao Empregado
-                var novoUsuario = new Usuario
-                {
-                    EmpregadoId = emp.Id,
-                    Matricula = emp.Matricula,
-                    Nome = emp.Nome,
-                    Email = $"{emp.Matricula}@reembolsoBas.com",
-                    SenhaHash = hash,
-                    Perfil = "empregado"
-                };
-
-                _ctx.Usuarios.Add(novoUsuario);
-                await _ctx.SaveChangesAsync();
-
-                await transaction.CommitAsync();
-
-                // 2.5) Retorna CreatedAtAction apontando para GetById
-                return CreatedAtAction(nameof(GetById), new { id = emp.Id }, emp);
-            }
-            catch (Exception ex)
+            _ctx.Usuarios.Add(new Usuario
             {
-                _logger.LogError(ex, "Erro ao criar empregado.");
-                return StatusCode(500, "Erro interno do servidor.");
-            }
+                EmpregadoId = emp.Id,
+                Matricula = emp.Matricula,
+                Nome = emp.Nome,
+                Email = $"{emp.Matricula}@reembolsobas.com",
+                SenhaHash = hash,
+                Perfil = dto.Perfil
+            });
+
+            await _ctx.SaveChangesAsync();
+            await tx.CommitAsync();
+
+            return CreatedAtAction(nameof(GetById), new { id = emp.Id }, emp);
         }
 
-        // 3. Busca um empregado por Id (somente RH e Admin)
+        // 3. Busca um colaborador por Id (somente RH e Admin)
         [HttpGet("{id:int}")]
-        [Authorize(Roles = "rh,admin,empregado")]
+        [Authorize(Roles = "rh,admin,colaborador")]
         public async Task<IActionResult> GetById(int id)
         {
             var emp = await _ctx.Empregados.FindAsync(id);
@@ -101,7 +100,7 @@ namespace ReembolsoBAS.Controllers
             return Ok(emp);
         }
 
-        // 4. Atualiza um empregado existente (somente RH ou Admin)
+        // 4. Atualiza um colaborador existente (somente RH ou Admin)
         [HttpPut("{id:int}")]
         [Authorize(Roles = "rh,admin")]
         public async Task<IActionResult> Update(int id, Empregado emp)
@@ -141,7 +140,7 @@ namespace ReembolsoBAS.Controllers
                 if (usuario != null)
                     _ctx.Usuarios.Remove(usuario);
 
-                // 5.2) Remover o empregado
+                // 5.2) Remover o colaborador
                 _ctx.Empregados.Remove(emp);
 
                 await _ctx.SaveChangesAsync();
@@ -155,7 +154,6 @@ namespace ReembolsoBAS.Controllers
         }
 
         // 6. Upload em lote de empregados via Excel (somente RH ou Admin)
-        /// <summary>Importa empregados a partir de arquivo Excel (.xlsx).</summary>
         [HttpPost("upload")]
         [Authorize(Roles = "rh,admin")]
         [Consumes("multipart/form-data")]
@@ -168,7 +166,6 @@ namespace ReembolsoBAS.Controllers
             var novosEmpregados = new List<Empregado>();
             var hashMatriculas = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
-            // ---------- LÊ O ARQUIVO ----------
             using var ms = new MemoryStream();
             await arquivo.CopyToAsync(ms);
             ms.Position = 0;
@@ -176,8 +173,8 @@ namespace ReembolsoBAS.Controllers
             using var wb = new XLWorkbook(ms);
             var ws = wb.Worksheets.First();
 
-            if (ws.Row(1).CellsUsed().Count() < 7)
-                return BadRequest("Layout incorreto: mínimo 7 colunas.");
+            if (ws.Row(1).CellsUsed().Count() < 6)   // agora apenas 6 colunas
+                return BadRequest("Layout incorreto: mínimo 6 colunas.");
 
             foreach (var row in ws.RowsUsed().Skip(1))
             {
@@ -186,22 +183,18 @@ namespace ReembolsoBAS.Controllers
 
                 if (string.IsNullOrEmpty(matricula))
                 {
-                    erros.Add($"Linha {linha}: matrícula vazia.");
-                    continue;
+                    erros.Add($"Linha {linha}: matrícula vazia."); continue;
                 }
                 if (!hashMatriculas.Add(matricula))
                 {
-                    erros.Add($"Linha {linha}: matrícula '{matricula}' repetida no arquivo.");
-                    continue;
+                    erros.Add($"Linha {linha}: matrícula '{matricula}' repetida."); continue;
                 }
                 if (await _ctx.Empregados.AnyAsync(e => e.Matricula == matricula) ||
                     await _ctx.Usuarios.AnyAsync(u => u.Matricula == matricula))
                 {
-                    erros.Add($"Linha {linha}: matrícula '{matricula}' já cadastrada.");
-                    continue;
+                    erros.Add($"Linha {linha}: matrícula '{matricula}' já cadastrada."); continue;
                 }
 
-                // Demais campos
                 var nome = row.Cell(2).GetString().Trim();
                 var diret = row.Cell(3).GetString().Trim();
                 var super = row.Cell(4).GetString().Trim();
@@ -214,15 +207,6 @@ namespace ReembolsoBAS.Controllers
                     _ => throw new FormatException($"Linha {linha}: valor inválido na coluna 'Ativo'.")
                 };
 
-                if (!decimal.TryParse(row.Cell(7).GetString().Trim().Replace('.', ','),
-                                      NumberStyles.Any, new CultureInfo("pt-BR"),
-                                      out var valorMax))
-                {
-                    erros.Add($"Linha {linha}: valor máximo inválido.");
-                    continue;
-                }
-
-                // Adiciona empregado válido
                 novosEmpregados.Add(new Empregado
                 {
                     Matricula = matricula,
@@ -231,53 +215,36 @@ namespace ReembolsoBAS.Controllers
                     Superintendencia = super,
                     Cargo = cargo,
                     Ativo = ativo,
-                    ValorMaximoMensal = valorMax
+                    ValorMaximoMensal = BeneficioHelper.CalcularLimite(cargo, _cfg)
                 });
             }
 
             if (erros.Any()) return BadRequest(new { erros });
             if (!novosEmpregados.Any()) return NoContent();
 
-            // ---------- GRAVA NO BANCO ----------
             await using var trx = await _ctx.Database.BeginTransactionAsync();
-            try
-            {
-                _ctx.Empregados.AddRange(novosEmpregados);
-                await _ctx.SaveChangesAsync();          // gera IDs
+            _ctx.Empregados.AddRange(novosEmpregados);
+            await _ctx.SaveChangesAsync();
 
-                // Agora cria usuários — PERFIL = e.Cargo
-                var novosUsuarios = novosEmpregados.Select(e => new Usuario
-                {
-                    EmpregadoId = e.Id,                 // FK
-                    Matricula = e.Matricula,
-                    Nome = e.Nome,
-                    Email = $"{e.Matricula}@reembolsobas.com",
-                    SenhaHash = BCrypt.Net.BCrypt.HashPassword("Senha123!", 12),
-                    Perfil = e.Cargo         
-                }).ToList();
-
-                _ctx.Usuarios.AddRange(novosUsuarios);
-                await _ctx.SaveChangesAsync();
-                await trx.CommitAsync();
-
-                return Ok(new
-                {
-                    totalImportados = novosEmpregados.Count,
-                    mensagem = "Importação concluída com sucesso."
-                });
-            }
-            catch (DbUpdateException dbEx)
+            var usuarios = novosEmpregados.Select(e => new Usuario
             {
-                await trx.RollbackAsync();
-                _logger.LogError(dbEx, "Falha de constraint no lote.");
-                return Conflict(dbEx.InnerException?.Message ?? dbEx.Message);
-            }
-            catch (Exception ex)
+                EmpregadoId = e.Id,
+                Matricula = e.Matricula,
+                Nome = e.Nome,
+                Email = $"{e.Matricula}@reembolsobas.com",
+                SenhaHash = BCrypt.Net.BCrypt.HashPassword("Senha123!", 12),
+                Perfil = "colaborador"   // ou outra regra
+            });
+
+            _ctx.Usuarios.AddRange(usuarios);
+            await _ctx.SaveChangesAsync();
+            await trx.CommitAsync();
+
+            return Ok(new
             {
-                await trx.RollbackAsync();
-                _logger.LogError(ex, "Erro inesperado no upload.");
-                return StatusCode(500, "Erro interno do servidor.");
-            }
+                totalImportados = novosEmpregados.Count,
+                mensagem = "Importação concluída."
+            });
         }
 
     }

@@ -3,6 +3,7 @@ using System;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Metadata;
+using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.EntityFrameworkCore.Storage.ValueConversion;
 using ReembolsoBAS.Data;
 
@@ -11,9 +12,11 @@ using ReembolsoBAS.Data;
 namespace ReembolsoBAS.Migrations
 {
     [DbContext(typeof(AppDbContext))]
-    partial class AppDbContextModelSnapshot : ModelSnapshot
+    [Migration("20250617193027_RemoveTipoSolicitacaoFromReembolso")]
+    partial class RemoveTipoSolicitacaoFromReembolso
     {
-        protected override void BuildModel(ModelBuilder modelBuilder)
+        /// <inheritdoc />
+        protected override void BuildTargetModel(ModelBuilder modelBuilder)
         {
 #pragma warning disable 612, 618
             modelBuilder
@@ -21,6 +24,52 @@ namespace ReembolsoBAS.Migrations
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
+
+            modelBuilder.Entity("Reembolso", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("CaminhoDocumentos")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("DataEnvio")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("MatriculaEmpregado")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(450)");
+
+                    b.Property<string>("MotivoReprovacao")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("NumeroRegistro")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime>("Periodo")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<decimal>("ValorReembolsado")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.Property<decimal>("ValorSolicitado")
+                        .HasColumnType("decimal(18,2)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("MatriculaEmpregado");
+
+                    b.ToTable("Reembolsos");
+                });
 
             modelBuilder.Entity("ReembolsoBAS.Models.Empregado", b =>
                 {
@@ -92,48 +141,6 @@ namespace ReembolsoBAS.Migrations
                     b.ToTable("PoliticasBAS");
                 });
 
-            modelBuilder.Entity("ReembolsoBAS.Models.Reembolso", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("int");
-
-                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("DataEnvio")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("MatriculaEmpregado")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(450)");
-
-                    b.Property<string>("MotivoReprovacao")
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("NumeroRegistro")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<DateTime>("Periodo")
-                        .HasColumnType("datetime2");
-
-                    b.Property<string>("Status")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<decimal>("ValorReembolsado")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.Property<decimal>("ValorSolicitado")
-                        .HasColumnType("decimal(18,2)");
-
-                    b.HasKey("Id");
-
-                    b.HasIndex("MatriculaEmpregado");
-
-                    b.ToTable("Reembolsos");
-                });
-
             modelBuilder.Entity("ReembolsoBAS.Models.ReembolsoLancamento", b =>
                 {
                     b.Property<int>("Id")
@@ -143,10 +150,6 @@ namespace ReembolsoBAS.Migrations
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
                     b.Property<string>("Beneficiario")
-                        .IsRequired()
-                        .HasColumnType("nvarchar(max)");
-
-                    b.Property<string>("CaminhoDocumentos")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
 
@@ -219,7 +222,7 @@ namespace ReembolsoBAS.Migrations
                     b.ToTable("Usuarios");
                 });
 
-            modelBuilder.Entity("ReembolsoBAS.Models.Reembolso", b =>
+            modelBuilder.Entity("Reembolso", b =>
                 {
                     b.HasOne("ReembolsoBAS.Models.Empregado", "Empregado")
                         .WithMany()
@@ -233,7 +236,7 @@ namespace ReembolsoBAS.Migrations
 
             modelBuilder.Entity("ReembolsoBAS.Models.ReembolsoLancamento", b =>
                 {
-                    b.HasOne("ReembolsoBAS.Models.Reembolso", "Reembolso")
+                    b.HasOne("Reembolso", "Reembolso")
                         .WithMany("Lancamentos")
                         .HasForeignKey("ReembolsoId")
                         .OnDelete(DeleteBehavior.Cascade)
@@ -253,7 +256,7 @@ namespace ReembolsoBAS.Migrations
                     b.Navigation("Empregado");
                 });
 
-            modelBuilder.Entity("ReembolsoBAS.Models.Reembolso", b =>
+            modelBuilder.Entity("Reembolso", b =>
                 {
                     b.Navigation("Lancamentos");
                 });
