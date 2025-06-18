@@ -1,5 +1,4 @@
-﻿// Models/ReembolsoLancamento.cs
-using ReembolsoBAS.Models.Enums;
+﻿using ReembolsoBAS.Models.Enums;
 using System.ComponentModel.DataAnnotations.Schema;
 using System.Text.Json.Serialization;
 
@@ -26,7 +25,7 @@ namespace ReembolsoBAS.Models
 
         public TipoSolicitacaoEnum TipoSolicitacao { get; set; }
 
-        /* ⬇️  novo campo: onde ficam os arquivos anexados */
+        /*  novo campo: onde ficam os arquivos anexados */
         public string CaminhoDocumentos { get; set; } = string.Empty;
     }
 }

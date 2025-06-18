@@ -396,7 +396,7 @@ namespace ReembolsoBAS.Controllers
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         fileName);
         }
-        // GET api/Reembolsos/lancamento/123/documento
+        // GET api/Reembolsos/lancamento/{lancId}/documento
         [HttpGet("lancamento/{lancId:int}/documento")]
         [Authorize(Roles = "colaborador,rh,gerente_rh,admin,diretor-presidente")]
         public async Task<IActionResult> BaixarDocumento(int lancId, string? fileName = null)
@@ -406,11 +406,15 @@ namespace ReembolsoBAS.Controllers
                                  .AsNoTracking()
                                  .FirstOrDefaultAsync(l => l.Id == lancId);
 
-            if (lanc == null) return NotFound("Lançamento não encontrado.");
+            if (lanc is null)
+                return NotFound("Lançamento não encontrado.");
 
-            // colaborador só baixa o próprio
+            // ← pega a matrícula gravada no token
+            var matriculaLogado = User.FindFirstValue(ClaimTypes.NameIdentifier);
+
+            // colaborador só vê seus próprios documentos
             if (User.IsInRole("colaborador") &&
-                lanc.Reembolso.MatriculaEmpregado != User.Identity!.Name)
+                lanc.Reembolso.MatriculaEmpregado != matriculaLogado)
                 return Forbid();
 
             if (string.IsNullOrWhiteSpace(lanc.CaminhoDocumentos))
@@ -423,13 +427,15 @@ namespace ReembolsoBAS.Controllers
 
             var nomePedido = fileName ?? nomes.First();
             var stream = await _fileStorage.OpenReadAsync(nomePedido);
-            if (stream == null) return NotFound("Arquivo não encontrado.");
+            if (stream is null)
+                return NotFound("Arquivo não encontrado.");
 
-            var contentType = nomePedido.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf" :
-                              nomePedido.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" :
-                              nomePedido.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
-                              nomePedido.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
-                              "application/octet-stream";
+            var contentType =
+                nomePedido.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf" :
+                nomePedido.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" :
+                nomePedido.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
+                nomePedido.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
+                                                                                   "application/octet-stream";
 
             return File(stream, contentType, nomePedido, enableRangeProcessing: true);
         }

@@ -1,5 +1,4 @@
-﻿// Models/Reembolso.cs
-using ReembolsoBAS.Models.Enums;
+﻿using ReembolsoBAS.Models.Enums;
 using System.ComponentModel.DataAnnotations.Schema;
 
 namespace ReembolsoBAS.Models

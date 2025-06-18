@@ -59,7 +59,7 @@ namespace ReembolsoBAS.Controllers
                 perfil = usuario.Perfil,
                 matricula = usuario.Matricula,
                 nome = usuario.Nome,
-                id = usuario.Id
+                id = usuario.EmpregadoId
             });
         }
         
