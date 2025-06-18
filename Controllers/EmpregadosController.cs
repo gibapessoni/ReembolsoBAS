@@ -173,7 +173,7 @@ namespace ReembolsoBAS.Controllers
             using var wb = new XLWorkbook(ms);
             var ws = wb.Worksheets.First();
 
-            if (ws.Row(1).CellsUsed().Count() < 6)   // agora apenas 6 colunas
+            if (ws.Row(1).CellsUsed().Count() < 6)   
                 return BadRequest("Layout incorreto: mínimo 6 colunas.");
 
             foreach (var row in ws.RowsUsed().Skip(1))
@@ -233,7 +233,7 @@ namespace ReembolsoBAS.Controllers
                 Nome = e.Nome,
                 Email = $"{e.Matricula}@reembolsobas.com",
                 SenhaHash = BCrypt.Net.BCrypt.HashPassword("Senha123!", 12),
-                Perfil = "colaborador"   // ou outra regra
+                Perfil = "colaborador"   
             });
 
             _ctx.Usuarios.AddRange(usuarios);
