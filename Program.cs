@@ -35,6 +35,8 @@ builder.Services.AddScoped<FileStorageService>();
 builder.Services.AddScoped<ReembolsoService>();
 
 builder.Services.Configure<ConfigArquivos>(builder.Configuration.GetSection("Arquivos"));
+builder.Services.Configure<ConfigArquivos>(builder.Configuration.GetSection("ConfigArquivos"));
+
 
 // 3. Configurar JWT Authentication
 var jwtKey = builder.Configuration["Jwt:Key"]

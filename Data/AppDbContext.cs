@@ -13,6 +13,8 @@ namespace ReembolsoBAS.Data
         public DbSet<Reembolso> Reembolsos { get; set; }
         public DbSet<PoliticaBAS> PoliticasBAS { get; set; }
         public DbSet<ReembolsoLancamento> ReembolsoLancamentos { get; set; }
+        public DbSet<ReembolsoDocumento> ReembolsoDocumentos { get; set; }
+
 
         protected override void OnModelCreating(ModelBuilder mb)
         {
@@ -43,6 +45,12 @@ namespace ReembolsoBAS.Data
             mb.Entity<Usuario>()
               .HasIndex(u => u.Matricula)
               .IsUnique();
+
+            mb.Entity<ReembolsoDocumento>()
+              .HasOne(d => d.Lancamento)
+              .WithMany(l => l.Documentos)
+              .HasForeignKey(d => d.ReembolsoLancamentoId)
+              .OnDelete(DeleteBehavior.Cascade);
         }
     }
 }

@@ -16,71 +16,65 @@ namespace ReembolsoBAS.Services
             _uploadPath = Path.Combine(Directory.GetCurrentDirectory(), "Uploads");
         }
 
-        /* ───────────────────────────── 1) SALVAR ───────────────────────────── */
-        // Retorna uma string “nome1;nome2;nome3”
-        public async Task<string> SaveFiles(IFormFileCollection files)
+        /* ───────────────────────── 1) SALVAR ‒ 1 arquivo ─────────────────── */
+        public async Task<(string stored, string contentType)> SaveFile(IFormFile file)
         {
-            var fileNames = new List<string>();
-
             if (!Directory.Exists(_uploadPath))
                 Directory.CreateDirectory(_uploadPath);
 
-            foreach (var file in files)
-            {
-                var fileName = $"{Guid.NewGuid()}_{file.FileName}";
-                var filePath = Path.Combine(_uploadPath, fileName);
+            var stored = $"{Guid.NewGuid():N}{Path.GetExtension(file.FileName)}";
+            var full = Path.Combine(_uploadPath, stored);
 
-                await using var stream = new FileStream(filePath, FileMode.Create);
-                await file.CopyToAsync(stream);
+            await using var fs = new FileStream(full, FileMode.Create);
+            await file.CopyToAsync(fs);
 
-                fileNames.Add(fileName);
-            }
-
-            return string.Join(';', fileNames);
+            return (stored, file.ContentType);
         }
 
-        /* ───────────────────────────── 2) EXCLUIR ──────────────────────────── */
+        /* ───────────────────────── 1a) SALVAR ‒ vários arquivos ─────────────
+         * Mantida apenas para código legado (PoliticasController, etc.).     */
+        public async Task<string> SaveFiles(IEnumerable<IFormFile> files)
+        {
+            var nomes = new List<string>();
+
+            foreach (var f in files)
+            {
+                var (stored, _) = await SaveFile(f);
+                nomes.Add(stored);
+            }
+            return string.Join(';', nomes);
+        }
+
+
+        /* ───────────────────────── 2) EXCLUIR ─────────────────────────────── */
         public Task DeleteFile(string storedNames)
         {
             if (string.IsNullOrWhiteSpace(storedNames))
                 return Task.CompletedTask;
 
-            var names = storedNames
-                        .Split(';', StringSplitOptions.RemoveEmptyEntries)
-                        .Select(n => n.Trim());
-
-            foreach (var name in names)
+            foreach (var name in storedNames.Split(';', StringSplitOptions.RemoveEmptyEntries))
             {
-                var fullPath = Path.Combine(_uploadPath, name);
-                if (File.Exists(fullPath))
-                    File.Delete(fullPath);
+                var full = Path.Combine(_uploadPath, name.Trim());
+                if (File.Exists(full)) File.Delete(full);
             }
-
             return Task.CompletedTask;
         }
 
-        /* ───────────────────────────── 3) EXISTS ───────────────────────────── */
+        /* ───────────────────────── 3) EXISTS ──────────────────────────────── */
         public bool Exists(string storedName)
         {
             if (string.IsNullOrWhiteSpace(storedName)) return false;
-            var full = Path.Combine(_uploadPath, storedName);
-            return File.Exists(full);
+            return File.Exists(Path.Combine(_uploadPath, storedName));
         }
 
-        /* ───────────────────────────── 4) OPEN READ ────────────────────────── */
+        /* ───────────────────────── 4) OPEN READ ───────────────────────────── */
         public Task<Stream?> OpenReadAsync(string storedName)
         {
-            if (string.IsNullOrWhiteSpace(storedName))
-                return Task.FromResult<Stream?>(null);
+            var full = Path.Combine(_uploadPath, storedName ?? "");
+            if (!File.Exists(full)) return Task.FromResult<Stream?>(null);
 
-            var full = Path.Combine(_uploadPath, storedName);
-
-            if (!File.Exists(full))
-                return Task.FromResult<Stream?>(null);
-
-            // Abrir em modo somente-leitura compartilhado
-            Stream stream = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read);
-            return Task.FromResult<Stream?>(stream);
+            Stream s = new FileStream(full, FileMode.Open, FileAccess.Read, FileShare.Read);
+            return Task.FromResult<Stream?>(s);
         }
     }
 }

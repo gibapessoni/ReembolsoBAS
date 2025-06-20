@@ -29,28 +29,32 @@ namespace ReembolsoBAS.Controllers
             _fileStorage = fileStorage;
             _configArquivos = configArquivos.Value;
         }
-
         [HttpPost("upload")]
         public async Task<IActionResult> UploadPolitica([FromForm] UploadPoliticaRequest req)
         {
-            if (req.Arquivo == null || req.Arquivo.Length == 0)
+            if (req.Arquivo is null || req.Arquivo.Length == 0)
                 return BadRequest("Arquivo obrigatório.");
 
-            // 1) Marcar tudo como não-vigente
-            var antigas = await _context.PoliticasBAS.ToListAsync();
-            antigas.ForEach(p => p.Vigente = false);  
+            // ► pasta destino (vinda do appsettings)
+            var pasta = Path.Combine(
+                Directory.GetCurrentDirectory(),
+                _configArquivos.CaminhoPoliticas);          // "Uploads/Politicas"
 
-            // 2) Salvar o arquivo
-            var nomeArquivo = await _fileStorage.SaveFiles(
-                new FormFileCollection { req.Arquivo });
+            if (!Directory.Exists(pasta))
+                Directory.CreateDirectory(pasta);
 
-            // 3) Usar o código vindo do front
+            var stored = $"{Guid.NewGuid():N}{Path.GetExtension(req.Arquivo.FileName)}";
+            var full = Path.Combine(pasta, stored);
+
+            await using (var fs = new FileStream(full, FileMode.Create))
+                await req.Arquivo.CopyToAsync(fs);
+
             var nova = new PoliticaBAS
             {
                 Codigo = req.Codigo,
-                Revisao = (antigas.Count + 1).ToString("00"),
+                Revisao = (_context.PoliticasBAS.Count() + 1).ToString("00"),
                 DataPublicacao = DateTime.UtcNow,
-                CaminhoArquivo = nomeArquivo,
+                CaminhoArquivo = stored,
                 Vigente = true
             };
 
@@ -58,8 +62,6 @@ namespace ReembolsoBAS.Controllers
             await _context.SaveChangesAsync();
             return Ok(nova);
         }
-
-
 
         [HttpGet("todas")]
         public async Task<IActionResult> GetTodasPoliticas()
@@ -80,22 +82,27 @@ namespace ReembolsoBAS.Controllers
             return Ok(lista);
         }
 
-        [HttpGet("download/{Id:int}")]
-        public async Task<IActionResult> DownloadPolitica(int Id)
+
+        [HttpGet("download/{id:int}")]
+        public async Task<IActionResult> DownloadPolitica(int id)
         {
-            var p = await _context.PoliticasBAS.FindAsync(Id);
-            if (p == null) return NotFound();
+            var politica = await _context.PoliticasBAS.FindAsync(id);
+            if (politica is null) return NotFound();
 
-            var pasta = Path.Combine(Directory.GetCurrentDirectory(), _configArquivos.CaminhoPoliticas);
-            var caminhoCompleto = Path.Combine(pasta, p.CaminhoArquivo);
+            var pasta = Path.Combine(
+                Directory.GetCurrentDirectory(),
+                _configArquivos.CaminhoPoliticas);          // **mesma pasta**
 
-            if (!System.IO.File.Exists(caminhoCompleto))
+            var caminho = Path.Combine(pasta, politica.CaminhoArquivo);
+            if (!System.IO.File.Exists(caminho))
                 return NotFound("Arquivo não encontrado no servidor.");
 
-            var fileName = Path.GetFileName(caminhoCompleto);
-            var mimeType = "application/pdf";
-            var bytes = await System.IO.File.ReadAllBytesAsync(caminhoCompleto);
-            return File(bytes, mimeType, fileName);
+            var mime = Path.GetExtension(caminho).Equals(".pdf", StringComparison.OrdinalIgnoreCase)
+                       ? "application/pdf"
+                       : "application/octet-stream";        // png, jpg, etc.
+
+            var bytes = await System.IO.File.ReadAllBytesAsync(caminho);
+            return File(bytes, mime, Path.GetFileName(caminho));
         }
 
         [HttpPost("ativar/{Id:int}")]

@@ -12,15 +12,15 @@ public class ReembolsoRequest
     [Range(0.01, double.MaxValue)]
     public decimal ValorSolicitado { get; set; }
 
-    /* arrays pareados */
+    /* arrays pareados (mesma quantidade) */
     [MinLength(1)] public string[] Beneficiario { get; set; } = Array.Empty<string>();
     [MinLength(1)] public GrauParentescoEnum[] GrauParentesco { get; set; } = Array.Empty<GrauParentescoEnum>();
     [MinLength(1)] public DateTime[] DataNascimento { get; set; } = Array.Empty<DateTime>();
     [MinLength(1)] public decimal[] ValorPago { get; set; } = Array.Empty<decimal>();
     [MinLength(1)] public TipoSolicitacaoEnum[] TipoSolicitacaoLancamento { get; set; } = Array.Empty<TipoSolicitacaoEnum>();
 
-    /* arquivos */
-    public IFormFileCollection? Documentos { get; set; }
+    /* um arquivo por lançamento (índices casados) */
+    public IFormFile[] Documentos { get; set; } = Array.Empty<IFormFile>();
+
     public bool RemoverDocumento { get; set; } = false;
 }
-
