@@ -35,24 +35,27 @@ namespace ReembolsoBAS.Controllers
             if (req.Arquivo is null || req.Arquivo.Length == 0)
                 return BadRequest("Arquivo obrigatório.");
 
-            // ► pasta destino (vinda do appsettings)
-            var pasta = Path.Combine(
-                Directory.GetCurrentDirectory(),
-                _configArquivos.CaminhoPoliticas);          // "Uploads/Politicas"
-
+            var pasta = Path.Combine(Directory.GetCurrentDirectory(),
+                                     _configArquivos.CaminhoPoliticas);   
             if (!Directory.Exists(pasta))
                 Directory.CreateDirectory(pasta);
 
             var stored = $"{Guid.NewGuid():N}{Path.GetExtension(req.Arquivo.FileName)}";
             var full = Path.Combine(pasta, stored);
-
             await using (var fs = new FileStream(full, FileMode.Create))
                 await req.Arquivo.CopyToAsync(fs);
+
+            /* 3) Desativa TODAS as políticas vigentes em uma única query */
+            await _context.PoliticasBAS
+                          .Where(p => p.Vigente)
+                          .ExecuteUpdateAsync(setters => setters.SetProperty(p => p.Vigente, false));           
+
+            string proximaRevisao = (_context.PoliticasBAS.Count() + 1).ToString("00");
 
             var nova = new PoliticaBAS
             {
                 Codigo = req.Codigo,
-                Revisao = (_context.PoliticasBAS.Count() + 1).ToString("00"),
+                Revisao = proximaRevisao,
                 DataPublicacao = DateTime.UtcNow,
                 CaminhoArquivo = stored,
                 Vigente = true
@@ -60,8 +63,10 @@ namespace ReembolsoBAS.Controllers
 
             _context.PoliticasBAS.Add(nova);
             await _context.SaveChangesAsync();
+
             return Ok(nova);
         }
+
 
         [HttpGet("todas")]
         public async Task<IActionResult> GetTodasPoliticas()
@@ -72,6 +77,18 @@ namespace ReembolsoBAS.Controllers
                                       .ToListAsync();
             return Ok(lista);
         }
+        [HttpGet("vigente")]
+        public async Task<IActionResult> GetPoliticasVigentes()
+        {
+            var lista = await _context.PoliticasBAS
+                                      .AsNoTracking()
+                                      .Where(p => p.Vigente)
+                                      .OrderByDescending(p => p.DataPublicacao)
+                                      .ToListAsync();
+
+            return Ok(lista);   
+        }
+
 
         [HttpGet("ativas")]
         public async Task<IActionResult> GetPoliticasAtivas()
