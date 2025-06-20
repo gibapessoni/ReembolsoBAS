@@ -65,49 +65,54 @@ namespace ReembolsoBAS.Controllers
                                   .ToListAsync();
             return Ok(lista);
         }
-
         [HttpPost("solicitar")]
         [Authorize(Roles = "colaborador,admin,diretor-presidente")]
         public async Task<IActionResult> SolicitarReembolso([FromForm] ReembolsoRequest req)
         {
             /* 1) Período YYYY-MM → DateTime */
-            if (!DateTime.TryParseExact($"{req.Periodo}-01", "yyyy-MM-dd",
+            if (!DateTime.TryParseExact(req.Periodo + "-01", "yyyy-MM-dd",
                                         CultureInfo.InvariantCulture,
                                         DateTimeStyles.None, out var periodoDt))
                 return BadRequest("Período inválido (use YYYY-MM).");
 
-            /* 2) Prazo (dia 5 mês seguinte) */
-            if (DateTime.Today > new DateTime(periodoDt.Year, periodoDt.Month, 1).AddMonths(1).AddDays(4))
+            /* 2) Prazo (dia-5 mês seguinte) */
+            var prazo = new DateTime(periodoDt.Year, periodoDt.Month, 1)
+                           .AddMonths(1).AddDays(4);
+            if (DateTime.Today > prazo)
                 return BadRequest("Fora do prazo para solicitação.");
 
-            /* 3) colaborador */
-            var emp = await _ctx.Empregados.FirstOrDefaultAsync(e => e.Matricula == req.Matricula);
+            /* 3) Empregado */
+            var emp = await _ctx.Empregados
+                                .FirstOrDefaultAsync(e => e.Matricula == req.Matricula);
             if (emp is null) return BadRequest("Matrícula não encontrada.");
 
-            /* 4) Tamanho dos arrays */
+            /* 4) Consistência dos arrays */
             int n = req.Beneficiario.Length;
-            if (new[] { req.GrauParentesco.Length, req.DataNascimento.Length,
-                req.ValorPago.Length, req.TipoSolicitacaoLancamento.Length }
-                .Any(len => len != n))
-                return BadRequest("Todos os arrays de lançamento devem ter o mesmo tamanho.");
+            if (new[] {
+            req.GrauParentesco.Length,
+            req.DataNascimento.Length,
+            req.ValorPago.Length,
+            req.TipoSolicitacaoLancamento.Length,
+            req.Documentos.Length
+        }.Any(len => len != n))
+                return BadRequest("Campos de lançamento devem ter o mesmo tamanho.");
 
-            /* 5) Documento obrigatório */
-            if (req.Documentos is null || req.Documentos.Count == 0)
-                return BadRequest("É obrigatório anexar ao menos um documento.");
-
-            /* 6) Salva arquivos uma única vez  */
-            var caminhoDocs = await _fileStorage.SaveFiles(req.Documentos);
-
-            /* 7) Monta lançamentos */
+            /* 5) Monta lançamentos */
             decimal total = 0m;
             var lancs = new List<ReembolsoLancamento>(n);
 
             for (int i = 0; i < n; i++)
             {
-                decimal valor = req.ValorPago[i];
+                var arquivo = req.Documentos[i];
+                if (arquivo == null || arquivo.Length == 0)
+                    return BadRequest($"Lançamento {i + 1}: anexe um documento.");
+
+                var valor = req.ValorPago[i];
                 total += valor;
 
-                lancs.Add(new ReembolsoLancamento
+                var (stored, ctype) = await _fileStorage.SaveFile(arquivo);
+
+                var lanc = new ReembolsoLancamento
                 {
                     Beneficiario = req.Beneficiario[i],
                     GrauParentesco = req.GrauParentesco[i],
@@ -115,11 +120,21 @@ namespace ReembolsoBAS.Controllers
                     ValorPago = valor,
                     ValorRestituir = valor * 0.5m,
                     TipoSolicitacao = req.TipoSolicitacaoLancamento[i],
-                    CaminhoDocumentos = caminhoDocs           
-                });
+                    Documentos =
+            {
+                new ReembolsoDocumento
+                {
+                    NomeFisico   = stored,
+                    NomeOriginal = arquivo.FileName,
+                    ContentType  = ctype
+                }
+            }
+                };
+
+                lancs.Add(lanc);
             }
 
-            /* 8) Cria o Reembolso */
+            /* 6) Persiste */
             var reembolso = new Reembolso
             {
                 MatriculaEmpregado = emp.Matricula,
@@ -133,49 +148,99 @@ namespace ReembolsoBAS.Controllers
             _ctx.Reembolsos.Add(reembolso);
             await _ctx.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetMeus),
-                                   new { id = reembolso.Id },
-                                   reembolso);
+            return CreatedAtAction(nameof(GetMeus), new { id = reembolso.Id }, reembolso);
         }
 
-        // 2.1 colaborador: Editar uma Solicitação de Reembolso        
+
         [HttpPut("{id:int}")]
         [Authorize(Roles = "colaborador,admin")]
         public async Task<IActionResult> EditarReembolso(
-                int id,
-                [FromForm] ReembolsoRequest req)
+        int id,
+        [FromForm] ReembolsoEditRequest req)
         {
             var reembolso = await _ctx.Reembolsos
-                                      .Include(r => r.Empregado)
+                                      .Include(r => r.Lancamentos)
+                                      .ThenInclude(l => l.Documentos)
                                       .FirstOrDefaultAsync(r => r.Id == id);
+            if (reembolso == null) return NotFound();
 
-            if (reembolso is null) return NotFound();
-            var matriculaLogado = User.FindFirstValue(ClaimTypes.NameIdentifier);
-            if (reembolso.MatriculaEmpregado != matriculaLogado &&
-                !User.IsInRole("admin")) return Forbid();
+            var matricula = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (reembolso.MatriculaEmpregado != matricula && !User.IsInRole("admin"))
+                return Forbid();
 
-            if (!DateTime.TryParseExact($"{req.Periodo}-01",
-                                        "yyyy-MM-dd",
+            /* ── valida período ───────────────────────────────────────────── */
+            if (!DateTime.TryParseExact(req.Periodo + "-01", "yyyy-MM-dd",
                                         CultureInfo.InvariantCulture,
-                                        DateTimeStyles.None,
-                                        out var periodoDt))
-                return BadRequest("Período inválido (use YYYY-MM).");
+                                        DateTimeStyles.None, out var periodoDt))
+                return BadRequest("Período inválido (YYYY-MM).");
 
             var prazo = new DateTime(periodoDt.Year, periodoDt.Month, 1)
-                           .AddMonths(1)
-                           .AddDays(4);          
-
+                           .AddMonths(1).AddDays(4);
             if (DateTime.Today > prazo && !User.IsInRole("admin"))
                 return BadRequest("Período fora do prazo para alteração.");
 
+            /* ── 1. lançamentos presentes no banco ───────────────────────── */
+            var existentes = reembolso.Lancamentos.ToDictionary(l => l.Id);
+
+            /* ── 2. percorre requisição ──────────────────────────────────── */
+            reembolso.Lancamentos.Clear();   // repovoaremos conforme req
+            decimal total = 0;
+
+            foreach (var dto in req.Lancamentos)
+            {
+                ReembolsoLancamento lanc;
+
+                if (dto.Id is not null && existentes.TryGetValue(dto.Id.Value, out lanc!))
+                {
+                    /* Atualizar existente */
+                    existentes.Remove(dto.Id.Value);  // sobra → será deletado
+                }
+                else
+                {
+                    /* Criar novo */
+                    lanc = new ReembolsoLancamento();
+                    _ctx.ReembolsoLancamentos.Add(lanc);
+                }
+
+                /* Copia dados do DTO para o modelo */
+                lanc.Beneficiario = dto.Beneficiario;
+                lanc.GrauParentesco = dto.GrauParentesco;
+                lanc.DataNascimento = dto.DataNascimento;
+                lanc.ValorPago = dto.ValorPago;
+                lanc.ValorRestituir = dto.ValorPago * 0.5m;
+                lanc.TipoSolicitacao = dto.TipoSolicitacao;
+
+                /* anexos adicionais (opcionais) */
+                if (dto.NovosArquivos?.Any() == true)
+                {
+                    foreach (var file in dto.NovosArquivos)
+                    {
+                        var (stored, ctype) = await _fileStorage.SaveFile(file);
+                        lanc.Documentos.Add(new ReembolsoDocumento
+                        {
+                            NomeFisico = stored,
+                            NomeOriginal = file.FileName,
+                            ContentType = ctype
+                        });
+                    }
+                }
+
+                total += dto.ValorPago;
+                reembolso.Lancamentos.Add(lanc);
+            }
+
+            /* ── 3. qualquer lançamento que sobrou em 'existentes' foi removido na requisição → delete ── */
+            if (existentes.Any())
+                _ctx.ReembolsoLancamentos.RemoveRange(existentes.Values);
+
+            /* ── 4. cabeçalho do reembolso ────────────────────────────────── */
             reembolso.Periodo = periodoDt;
-            reembolso.ValorSolicitado = req.ValorSolicitado;
+            reembolso.ValorSolicitado = total;
 
-            _ctx.Entry(reembolso).State = EntityState.Modified;
             await _ctx.SaveChangesAsync();
-
             return Ok(reembolso);
         }
+
 
         // 2.2 colaborador: Excluir uma Solicitação de Reembolso
         [HttpDelete("{id:int}")]
@@ -300,16 +365,24 @@ namespace ReembolsoBAS.Controllers
             public bool ApenasAprovados { get; set; } = false;
         }
 
-        [HttpPost("relatorio")]
-        [Authorize(Roles = "rh,gerente_rh,admin")]
-        public async Task<IActionResult> GetRelatorio([FromBody] RelatorioFilter filtro)
+        // GET /api/Reembolsos/relatorio?ano=2025&mes=6&apenasAprovados=true
+        [HttpGet("relatorio")]
+        [Authorize(Roles = "rh,gerente_rh,admin,colaborador")]
+        public async Task<IActionResult> GetRelatorio(
+            [FromQuery] int ano,                     // obrigatório
+            [FromQuery] int mes,                     // obrigatório (1-12)
+            [FromQuery] bool apenasAprovados = false // opcional, default = false
+        )
         {
+            if (mes is < 1 or > 12)                 // validação simples
+                return BadRequest("O mês deve estar entre 1 e 12.");
+
             var query = _ctx.Reembolsos
                             .Include(r => r.Empregado)
-                            .Where(r => r.Periodo.Year == filtro.Competencia.Year
-                                     && r.Periodo.Month == filtro.Competencia.Month);
+                            .Where(r => r.Periodo.Year == ano &&
+                                        r.Periodo.Month == mes);
 
-            if (filtro.ApenasAprovados)
+            if (apenasAprovados)
                 query = query.Where(r => r.Status == StatusReembolso.Aprovado);
 
             var lista = await query
@@ -320,15 +393,20 @@ namespace ReembolsoBAS.Controllers
                     Diretoria = r.Empregado.Diretoria,
                     Cargo = r.Empregado.Cargo,
                     ValorMaximo = r.Empregado.ValorMaximoMensal,
+
+                    // <- aqui estava faltando o "r."
                     ValorSolicitado = r.ValorSolicitado,
                     ValorReembolsado = r.ValorReembolsado,
+
                     r.Status,
                     DataEnvio = r.DataEnvio
                 })
                 .ToListAsync();
 
+
             return Ok(lista);
         }
+
 
         // 10. Relatório em Excel
         [HttpPost("relatorio/excel")]
@@ -396,49 +474,48 @@ namespace ReembolsoBAS.Controllers
                         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
                         fileName);
         }
-        // GET api/Reembolsos/lancamento/{lancId}/documento
-        [HttpGet("lancamento/{lancId:int}/documento")]
+        // GET api/Reembolsos/documento/123
+        [HttpGet("documento/{docId:int}")]
         [Authorize(Roles = "colaborador,rh,gerente_rh,admin,diretor-presidente")]
-        public async Task<IActionResult> BaixarDocumento(int lancId, string? fileName = null)
+        public async Task<IActionResult> BaixarDocumento(int docId)
         {
-            var lanc = await _ctx.ReembolsoLancamentos
-                                 .Include(l => l.Reembolso)
-                                 .AsNoTracking()
-                                 .FirstOrDefaultAsync(l => l.Id == lancId);
+            var doc = await _ctx.ReembolsoDocumentos
+                                .Include(d => d.Lancamento).ThenInclude(l => l.Reembolso)
+                                .FirstOrDefaultAsync(d => d.Id == docId);
+            if (doc is null) return NotFound();
 
-            if (lanc is null)
-                return NotFound("Lançamento não encontrado.");
-
-            // ← pega a matrícula gravada no token
-            var matriculaLogado = User.FindFirstValue(ClaimTypes.NameIdentifier);
-
-            // colaborador só vê seus próprios documentos
+            var matricula = User.FindFirstValue(ClaimTypes.NameIdentifier);
             if (User.IsInRole("colaborador") &&
-                lanc.Reembolso.MatriculaEmpregado != matriculaLogado)
+                doc.Lancamento.Reembolso.MatriculaEmpregado != matricula)
                 return Forbid();
 
-            if (string.IsNullOrWhiteSpace(lanc.CaminhoDocumentos))
-                return NotFound("Nenhum documento associado.");
+            var stream = await _fileStorage.OpenReadAsync(doc.NomeFisico);
+            if (stream is null) return NotFound("Arquivo não existe no servidor.");
 
-            var nomes = lanc.CaminhoDocumentos
-                            .Split(';', StringSplitOptions.RemoveEmptyEntries)
-                            .Select(n => n.Trim())
-                            .ToArray();
-
-            var nomePedido = fileName ?? nomes.First();
-            var stream = await _fileStorage.OpenReadAsync(nomePedido);
-            if (stream is null)
-                return NotFound("Arquivo não encontrado.");
-
-            var contentType =
-                nomePedido.EndsWith(".pdf", StringComparison.OrdinalIgnoreCase) ? "application/pdf" :
-                nomePedido.EndsWith(".png", StringComparison.OrdinalIgnoreCase) ? "image/png" :
-                nomePedido.EndsWith(".jpg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
-                nomePedido.EndsWith(".jpeg", StringComparison.OrdinalIgnoreCase) ? "image/jpeg" :
-                                                                                   "application/octet-stream";
-
-            return File(stream, contentType, nomePedido, enableRangeProcessing: true);
+            return File(stream, doc.ContentType, doc.NomeOriginal, enableRangeProcessing: true);
         }
+
+        // DELETE api/Reembolsos/documento/123
+        [HttpDelete("documento/{docId:int}")]
+        [Authorize(Roles = "colaborador,rh,gerente_rh,admin")]
+        public async Task<IActionResult> ExcluirDocumento(int docId)
+        {
+            var doc = await _ctx.ReembolsoDocumentos
+                                .Include(d => d.Lancamento).ThenInclude(l => l.Reembolso)
+                                .FirstOrDefaultAsync(d => d.Id == docId);
+            if (doc is null) return NotFound();
+
+            var matricula = User.FindFirstValue(ClaimTypes.NameIdentifier);
+            if (User.IsInRole("colaborador") &&
+                doc.Lancamento.Reembolso.MatriculaEmpregado != matricula)
+                return Forbid();
+
+            await _fileStorage.DeleteFile(doc.NomeFisico);
+            _ctx.Remove(doc);
+            await _ctx.SaveChangesAsync();
+            return NoContent();
+        }
+
 
 
     }
