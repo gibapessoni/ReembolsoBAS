@@ -50,91 +50,85 @@ namespace ReembolsoBAS.Controllers
                 var item = await _ctx.Reembolsos
                     .Include(r => r.Empregado)
                     .Include(r => r.Lancamentos)
-                    .Where(r => r.MatriculaEmpregado == matricula && r.Id == id.Value)
-                    .FirstOrDefaultAsync();
-                if (item == null)
-                    return NotFound($"Nenhum reembolso encontrado com Id = {id.Value}.");
-                return Ok(item);
+                        .ThenInclude(l => l.Documentos)       
+                    .FirstOrDefaultAsync(r =>
+                           r.MatriculaEmpregado == matricula &&
+                           r.Id == id.Value);
+
+                return item is null
+                    ? NotFound($"Nenhum reembolso encontrado com Id = {id}.")
+                    : Ok(item);
             }
 
             var lista = await _ctx.Reembolsos
-                                  .Include(r => r.Empregado)
-                                  .Include(r => r.Lancamentos)
-                                  .Where(r => r.MatriculaEmpregado == matricula)
-                                  .OrderByDescending(r => r.Periodo)
-                                  .ToListAsync();
+                .Include(r => r.Empregado)
+                .Include(r => r.Lancamentos)
+                    .ThenInclude(l => l.Documentos)            
+                .Where(r => r.MatriculaEmpregado == matricula)
+                .OrderByDescending(r => r.Periodo)
+                .ToListAsync();
+
             return Ok(lista);
         }
+
         [HttpPost("solicitar")]
         [Authorize(Roles = "colaborador,admin,diretor-presidente")]
-        public async Task<IActionResult> SolicitarReembolso([FromForm] ReembolsoRequest req)
+        public async Task<IActionResult> SolicitarReembolso(
+        [FromForm] ReembolsoCreateRequest req)           // ← novo DTO
         {
-            /* 1) Período YYYY-MM → DateTime */
+            /* ── 1) Período ───────────────────────────────────────────────── */
             if (!DateTime.TryParseExact(req.Periodo + "-01", "yyyy-MM-dd",
                                         CultureInfo.InvariantCulture,
                                         DateTimeStyles.None, out var periodoDt))
-                return BadRequest("Período inválido (use YYYY-MM).");
+                return BadRequest("Período inválido (YYYY-MM).");
 
-            /* 2) Prazo (dia-5 mês seguinte) */
             var prazo = new DateTime(periodoDt.Year, periodoDt.Month, 1)
                            .AddMonths(1).AddDays(4);
             if (DateTime.Today > prazo)
                 return BadRequest("Fora do prazo para solicitação.");
 
-            /* 3) Empregado */
+            /* ── 2) Empregado ─────────────────────────────────────────────── */
             var emp = await _ctx.Empregados
                                 .FirstOrDefaultAsync(e => e.Matricula == req.Matricula);
             if (emp is null) return BadRequest("Matrícula não encontrada.");
 
-            /* 4) Consistência dos arrays */
-            int n = req.Beneficiario.Length;
-            if (new[] {
-            req.GrauParentesco.Length,
-            req.DataNascimento.Length,
-            req.ValorPago.Length,
-            req.TipoSolicitacaoLancamento.Length,
-            req.Documentos.Length
-        }.Any(len => len != n))
-                return BadRequest("Campos de lançamento devem ter o mesmo tamanho.");
+            /* ── 3) Monta lançamentos ─────────────────────────────────────── */
+            decimal total = 0;
+            var lancs = new List<ReembolsoLancamento>(req.Lancamentos.Count);
 
-            /* 5) Monta lançamentos */
-            decimal total = 0m;
-            var lancs = new List<ReembolsoLancamento>(n);
-
-            for (int i = 0; i < n; i++)
+            foreach (var dto in req.Lancamentos.Select((v, i) => (v, i)))
             {
-                var arquivo = req.Documentos[i];
-                if (arquivo == null || arquivo.Length == 0)
-                    return BadRequest($"Lançamento {i + 1}: anexe um documento.");
+                var (lancDto, idx) = dto;
 
-                var valor = req.ValorPago[i];
-                total += valor;
-
-                var (stored, ctype) = await _fileStorage.SaveFile(arquivo);
+                if (lancDto.Arquivos is null || lancDto.Arquivos.Count == 0)
+                    return BadRequest($"Lançamento {idx + 1}: anexe pelo menos 1 arquivo.");
 
                 var lanc = new ReembolsoLancamento
                 {
-                    Beneficiario = req.Beneficiario[i],
-                    GrauParentesco = req.GrauParentesco[i],
-                    DataNascimento = req.DataNascimento[i],
-                    ValorPago = valor,
-                    ValorRestituir = valor * 0.5m,
-                    TipoSolicitacao = req.TipoSolicitacaoLancamento[i],
-                    Documentos =
-            {
-                new ReembolsoDocumento
-                {
-                    NomeFisico   = stored,
-                    NomeOriginal = arquivo.FileName,
-                    ContentType  = ctype
-                }
-            }
+                    Beneficiario = lancDto.Beneficiario,
+                    GrauParentesco = lancDto.GrauParentesco,
+                    DataNascimento = lancDto.DataNascimento,
+                    ValorPago = lancDto.ValorPago,
+                    ValorRestituir = lancDto.ValorPago * 0.5m,
+                    TipoSolicitacao = lancDto.TipoSolicitacao
                 };
 
+                foreach (var file in lancDto.Arquivos)
+                {
+                    var (stored, ctype) = await _fileStorage.SaveFile(file);
+                    lanc.Documentos.Add(new ReembolsoDocumento
+                    {
+                        NomeFisico = stored,
+                        NomeOriginal = file.FileName,
+                        ContentType = ctype
+                    });
+                }
+
+                total += lancDto.ValorPago;
                 lancs.Add(lanc);
             }
 
-            /* 6) Persiste */
+            /* ── 4) Persiste cabeçalho + lançamentos ──────────────────────── */
             var reembolso = new Reembolso
             {
                 MatriculaEmpregado = emp.Matricula,
@@ -148,8 +142,11 @@ namespace ReembolsoBAS.Controllers
             _ctx.Reembolsos.Add(reembolso);
             await _ctx.SaveChangesAsync();
 
-            return CreatedAtAction(nameof(GetMeus), new { id = reembolso.Id }, reembolso);
+            return CreatedAtAction(nameof(GetMeus),
+                                   new { id = reembolso.Id },
+                                   reembolso);
         }
+
 
 
         [HttpPut("{id:int}")]
